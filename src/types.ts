@@ -1,8 +1,14 @@
+export interface ToolCall {
+  name: string;
+  query: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   reasoning?: string[];
+  toolCalls?: ToolCall[];
   timestamp: Date;
 }
 

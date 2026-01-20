@@ -211,6 +211,12 @@ exports.handler = async (event, context) => {
       reasoningSummary = [...reasoningSummary, ...secondResult.reasoningSummary];
     }
 
+    // Format tool calls for frontend display
+    const toolCallsInfo = toolCalls.map(tc => ({
+      name: tc.name,
+      query: tc.arguments.query || tc.arguments.objective || JSON.stringify(tc.arguments)
+    }));
+
     console.log('=== Chat Function Completed ===');
     return {
       statusCode: 200,
@@ -221,7 +227,8 @@ exports.handler = async (event, context) => {
       },
       body: JSON.stringify({
         response: responseText,
-        reasoning: reasoningSummary
+        reasoning: reasoningSummary,
+        toolCalls: toolCallsInfo
       }),
     };
 

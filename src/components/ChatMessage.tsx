@@ -1,6 +1,6 @@
 import React from 'react';
 import { Message } from '../types';
-import { Bot, User, Brain } from 'lucide-react';
+import { Bot, User, Brain, Globe } from 'lucide-react';
 import { TypewriterText } from './TypewriterText';
 
 interface ChatMessageProps {
@@ -12,6 +12,7 @@ interface ChatMessageProps {
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isLatest = false, username = 'You' }) => {
   const isUser = message.role === 'user';
   const hasReasoning = !isUser && message.reasoning && message.reasoning.length > 0;
+  const hasToolCalls = !isUser && message.toolCalls && message.toolCalls.length > 0;
   const shouldAnimate = isLatest && !isUser;
 
   return (
@@ -29,6 +30,23 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isLatest = fa
         <div className="font-medium text-sm mb-1">
           {isUser ? username : 'Assistant'}
         </div>
+
+        {hasToolCalls && (
+          <div className="mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="flex items-center gap-1.5 text-xs text-blue-600 mb-2">
+              <Globe className="w-3.5 h-3.5" />
+              <span className="font-medium">Web Search</span>
+            </div>
+            <div className="text-blue-700 text-sm">
+              {message.toolCalls!.map((tc, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <span className="text-blue-500">🔍</span>
+                  <span>Searching: <code className="bg-blue-100 px-1.5 py-0.5 rounded text-xs">{tc.query}</code></span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         
         {hasReasoning && (
           <div className="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">

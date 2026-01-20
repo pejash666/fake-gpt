@@ -48,6 +48,7 @@ function App() {
         role: 'assistant',
         content: result.response,
         reasoning: result.reasoning,
+        toolCalls: result.toolCalls,
         timestamp: new Date(),
       };
 

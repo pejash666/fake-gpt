@@ -1,8 +1,9 @@
-import { Message, ModelConfig } from './types';
+import { Message, ModelConfig, ToolCall } from './types';
 
 export interface ChatResponse {
   response: string;
   reasoning: string[];
+  toolCalls: ToolCall[];
 }
 
 export class NetlifyAPI {
@@ -34,7 +35,8 @@ export class NetlifyAPI {
     const data = await response.json();
     return {
       response: data.response,
-      reasoning: data.reasoning || []
+      reasoning: data.reasoning || [],
+      toolCalls: data.toolCalls || []
     };
   }
 }
