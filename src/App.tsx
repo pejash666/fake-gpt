@@ -4,7 +4,8 @@ import { NetlifyAPI } from './api';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
 import { ModelSelector } from './components/ModelSelector';
-import { MessageSquare, Loader2 } from 'lucide-react';
+import { UserSettings } from './components/UserSettings';
+import { MessageSquare, Loader2, User } from 'lucide-react';
 
 function App() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -14,6 +15,10 @@ function App() {
     model: 'gpt-5.1',
     reasoning: { effort: 'medium' }
   });
+  const [username, setUsername] = useState(() => {
+    return localStorage.getItem('username') || 'You';
+  });
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -65,6 +70,11 @@ function App() {
     setMessages([]);
   };
 
+  const handleSaveUsername = (newUsername: string) => {
+    setUsername(newUsername);
+    localStorage.setItem('username', newUsername);
+  };
+
   return (
     <div className="flex flex-col h-screen bg-gray-100">
       <header className="bg-white border-b px-4 py-3">
@@ -82,14 +92,16 @@ function App() {
             >
               Clear Chat
             </button>
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded transition-colors"
+            >
+              <User className="w-4 h-4" />
+              {username}
+            </button>
           </div>
         </div>
       </header>
-
-      <ModelSelector 
-        config={modelConfig} 
-        onConfigChange={setModelConfig} 
-      />
 
       <main className="flex-1 overflow-hidden">
         <div className="h-full max-w-4xl mx-auto bg-white">
@@ -110,6 +122,7 @@ function App() {
                   key={message.id} 
                   message={message} 
                   isLatest={index === messages.length - 1}
+                  username={username}
                 />
               ))}
               {isLoading && (
@@ -130,6 +143,18 @@ function App() {
       </main>
 
       <ChatInput onSendMessage={handleSendMessage} disabled={isLoading} />
+
+      <ModelSelector 
+        config={modelConfig} 
+        onConfigChange={setModelConfig} 
+      />
+
+      <UserSettings
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        username={username}
+        onSave={handleSaveUsername}
+      />
     </div>
   );
 }

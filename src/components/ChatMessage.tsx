@@ -6,9 +6,10 @@ import { TypewriterText } from './TypewriterText';
 interface ChatMessageProps {
   message: Message;
   isLatest?: boolean;
+  username?: string;
 }
 
-export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isLatest = false }) => {
+export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isLatest = false, username = 'You' }) => {
   const isUser = message.role === 'user';
   const hasReasoning = !isUser && message.reasoning && message.reasoning.length > 0;
   const shouldAnimate = isLatest && !isUser;
@@ -26,7 +27,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isLatest = fa
       </div>
       <div className="flex-1">
         <div className="font-medium text-sm mb-1">
-          {isUser ? 'You' : 'Assistant'}
+          {isUser ? username : 'Assistant'}
         </div>
         
         {hasReasoning && (
