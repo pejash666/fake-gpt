@@ -99,18 +99,22 @@ function extractResponse(data) {
   let responseText = '';
   let reasoningSummary = [];
   let toolCalls = [];
-  let rawFunctionCalls = [];
+  let rawOutputItems = []; // Keep all output items for follow-up
 
   if (data.output && data.output.length > 0) {
-    // Find reasoning output
+    // Keep all output items (reasoning, function_call, etc.) for follow-up requests
+    rawOutputItems = data.output.filter(item => 
+      item.type === 'reasoning' || item.type === 'function_call'
+    );
+
+    // Find reasoning output for display
     const reasoningOutput = data.output.find(item => item.type === 'reasoning');
     if (reasoningOutput && reasoningOutput.summary && reasoningOutput.summary.length > 0) {
       reasoningSummary = reasoningOutput.summary.map(item => item.text || item);
     }
 
-    // Find tool calls and keep raw function_call objects
+    // Find tool calls
     const functionCalls = data.output.filter(item => item.type === 'function_call');
-    rawFunctionCalls = functionCalls;
     toolCalls = functionCalls.map(fc => ({
       id: fc.call_id,
       name: fc.name,
@@ -127,7 +131,7 @@ function extractResponse(data) {
     }
   }
 
-  return { responseText, reasoningSummary, toolCalls, rawFunctionCalls };
+  return { responseText, reasoningSummary, toolCalls, rawOutputItems };
 }
 
 exports.handler = async (event, context) => {
@@ -172,15 +176,15 @@ exports.handler = async (event, context) => {
     let data = await callAzureAPI(input, selectedModel, reasoningEffort, [WEB_SEARCH_TOOL], AZURE_ENDPOINT, AZURE_API_KEY);
     console.log('First response:', JSON.stringify(data, null, 2));
 
-    let { responseText, reasoningSummary, toolCalls, rawFunctionCalls } = extractResponse(data);
+    let { responseText, reasoningSummary, toolCalls, rawOutputItems } = extractResponse(data);
 
     // Handle tool calls if any
     if (toolCalls.length > 0) {
       console.log('Tool calls detected:', toolCalls);
 
-      // Add function_call objects from first response to input
-      for (const fc of rawFunctionCalls) {
-        input.push(fc);
+      // Add all output items (reasoning + function_call) from first response to input
+      for (const item of rawOutputItems) {
+        input.push(item);
       }
 
       for (const toolCall of toolCalls) {
