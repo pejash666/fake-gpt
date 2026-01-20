@@ -52,7 +52,7 @@ exports.handler = async (event, context) => {
       role: msg.role,
       content: [
         {
-          type: "input_text",
+          type: msg.role === 'assistant' ? "output_text" : "input_text",
           text: msg.content
         }
       ]
