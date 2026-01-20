@@ -1,6 +1,6 @@
 import React from 'react';
 import { Message } from '../types';
-import { Bot, User } from 'lucide-react';
+import { Bot, User, Brain } from 'lucide-react';
 
 interface ChatMessageProps {
   message: Message;
@@ -8,6 +8,7 @@ interface ChatMessageProps {
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const isUser = message.role === 'user';
+  const hasReasoning = !isUser && message.reasoning && message.reasoning.length > 0;
 
   return (
     <div className={`flex gap-3 p-4 ${isUser ? 'bg-gray-50' : 'bg-white'}`}>
@@ -24,6 +25,21 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         <div className="font-medium text-sm mb-1">
           {isUser ? 'You' : 'Assistant'}
         </div>
+        
+        {hasReasoning && (
+          <div className="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+            <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-2">
+              <Brain className="w-3.5 h-3.5" />
+              <span className="font-medium">Reasoning</span>
+            </div>
+            <div className="text-gray-500 text-sm whitespace-pre-wrap">
+              {message.reasoning!.map((item, index) => (
+                <p key={index} className="mb-1 last:mb-0">{item}</p>
+              ))}
+            </div>
+          </div>
+        )}
+        
         <div className="text-gray-800 whitespace-pre-wrap">
           {message.content}
         </div>

@@ -1,5 +1,10 @@
 import { Message, ModelConfig } from './types';
 
+export interface ChatResponse {
+  response: string;
+  reasoning: string[];
+}
+
 export class NetlifyAPI {
   private baseUrl: string;
 
@@ -9,7 +14,7 @@ export class NetlifyAPI {
     this.baseUrl = ''; 
   }
 
-  async sendMessage(messages: Message[], config: ModelConfig): Promise<string> {
+  async sendMessage(messages: Message[], config: ModelConfig): Promise<ChatResponse> {
     const response = await fetch(`${this.baseUrl}/.netlify/functions/chat`, {
       method: 'POST',
       headers: {
@@ -27,6 +32,9 @@ export class NetlifyAPI {
     }
 
     const data = await response.json();
-    return data.response;
+    return {
+      response: data.response,
+      reasoning: data.reasoning || []
+    };
   }
 }

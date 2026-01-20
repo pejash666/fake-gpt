@@ -100,10 +100,19 @@ exports.handler = async (event, context) => {
     const data = await response.json();
     console.log('Azure Response Body:', JSON.stringify(data, null, 2));
     
-    // Extract response text from Responses API format
+    // Extract reasoning summary and response text from Responses API format
     let responseText = '';
+    let reasoningSummary = [];
+    
     if (data.output && data.output.length > 0) {
-      // Find the message type output (not reasoning)
+      // Find reasoning output
+      const reasoningOutput = data.output.find(item => item.type === 'reasoning');
+      if (reasoningOutput && reasoningOutput.summary && reasoningOutput.summary.length > 0) {
+        reasoningSummary = reasoningOutput.summary.map(item => item.text || item);
+        console.log('Extracted reasoning summary:', reasoningSummary);
+      }
+      
+      // Find the message type output
       const messageOutput = data.output.find(item => item.type === 'message');
       if (messageOutput && messageOutput.content && messageOutput.content.length > 0) {
         const textContent = messageOutput.content.find(item => item.type === 'output_text');
@@ -129,7 +138,8 @@ exports.handler = async (event, context) => {
         'Access-Control-Allow-Headers': 'Content-Type',
       },
       body: JSON.stringify({
-        response: responseText
+        response: responseText,
+        reasoning: reasoningSummary
       }),
     };
 

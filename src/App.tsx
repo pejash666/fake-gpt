@@ -36,12 +36,13 @@ function App() {
     setIsLoading(true);
 
     try {
-      const response = await api.sendMessage([...messages, userMessage], modelConfig);
+      const result = await api.sendMessage([...messages, userMessage], modelConfig);
       
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response,
+        content: result.response,
+        reasoning: result.reasoning,
         timestamp: new Date(),
       };
 
