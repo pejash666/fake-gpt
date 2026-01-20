@@ -16,8 +16,9 @@ exports.handler = async (event, context) => {
 
   try {
     console.log('Request body:', event.body);
-    const { messages } = JSON.parse(event.body);
+    const { messages, modelConfig } = JSON.parse(event.body);
     console.log('Parsed messages:', JSON.stringify(messages, null, 2));
+    console.log('Model config:', JSON.stringify(modelConfig, null, 2));
     
     // Validate required environment variables
     const { 
@@ -41,6 +42,10 @@ exports.handler = async (event, context) => {
       };
     }
 
+    // Use model from config or fallback to deployment name
+    const selectedModel = modelConfig?.model || AZURE_DEPLOYMENT_NAME;
+    const reasoningEffort = modelConfig?.reasoning?.effort || 'medium';
+
     // Convert messages to input format for Responses API
     const input = messages.map(msg => ({
       type: "message",
@@ -56,11 +61,11 @@ exports.handler = async (event, context) => {
     console.log('Converted input format:', JSON.stringify(input, null, 2));
 
     const requestBody = {
-      model: AZURE_DEPLOYMENT_NAME,
+      model: selectedModel,
       input: input,
       max_output_tokens: 1000,
       reasoning: {
-        effort: "medium"
+        effort: reasoningEffort
       }
     };
 

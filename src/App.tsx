@@ -1,14 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
-import { Message } from './types';
+import { Message, ModelConfig } from './types';
 import { NetlifyAPI } from './api';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
+import { ModelSelector } from './components/ModelSelector';
 import { MessageSquare, Loader2 } from 'lucide-react';
 
 function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [api] = useState(() => new NetlifyAPI());
+  const [modelConfig, setModelConfig] = useState<ModelConfig>({
+    model: 'gpt-5.1',
+    reasoning: { effort: 'medium' }
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -31,7 +36,7 @@ function App() {
     setIsLoading(true);
 
     try {
-      const response = await api.sendMessage([...messages, userMessage]);
+      const response = await api.sendMessage([...messages, userMessage], modelConfig);
       
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -63,8 +68,10 @@ function App() {
     <div className="flex flex-col h-screen bg-gray-100">
       <header className="bg-white border-b px-4 py-3">
         <div className="flex items-center justify-between max-w-4xl mx-auto">
-          <div className="flex items-center gap-2">
-            <MessageSquare className="w-6 h-6 text-blue-500" />
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-black rounded-sm flex items-center justify-center">
+              <span className="text-white text-xs font-bold">AI</span>
+            </div>
             <h1 className="text-xl font-semibold">Azure ChatGPT</h1>
           </div>
           <div className="flex items-center gap-2">
@@ -77,6 +84,11 @@ function App() {
           </div>
         </div>
       </header>
+
+      <ModelSelector 
+        config={modelConfig} 
+        onConfigChange={setModelConfig} 
+      />
 
       <main className="flex-1 overflow-hidden">
         <div className="h-full max-w-4xl mx-auto bg-white">

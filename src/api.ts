@@ -1,4 +1,4 @@
-import { Message } from './types';
+import { Message, ModelConfig } from './types';
 
 export class NetlifyAPI {
   private baseUrl: string;
@@ -9,13 +9,16 @@ export class NetlifyAPI {
     this.baseUrl = ''; 
   }
 
-  async sendMessage(messages: Message[]): Promise<string> {
+  async sendMessage(messages: Message[], config: ModelConfig): Promise<string> {
     const response = await fetch(`${this.baseUrl}/.netlify/functions/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify({ 
+        messages,
+        modelConfig: config
+      }),
     });
 
     if (!response.ok) {
