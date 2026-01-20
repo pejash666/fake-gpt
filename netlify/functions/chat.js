@@ -66,7 +66,7 @@ exports.handler = async (event, context) => {
       max_output_tokens: 1000,
       reasoning: {
         effort: reasoningEffort,
-        summary: "concise"
+        summary: "detailed"
       }
     };
 
