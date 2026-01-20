@@ -102,18 +102,18 @@ exports.handler = async (event, context) => {
     // Extract response text from Responses API format
     let responseText = '';
     if (data.output && data.output.length > 0) {
-      const outputMessage = data.output[0];
-      console.log('Output message:', JSON.stringify(outputMessage, null, 2));
-      if (outputMessage.content && outputMessage.content.length > 0) {
-        const textContent = outputMessage.content.find(item => item.type === 'output_text');
+      // Find the message type output (not reasoning)
+      const messageOutput = data.output.find(item => item.type === 'message');
+      if (messageOutput && messageOutput.content && messageOutput.content.length > 0) {
+        const textContent = messageOutput.content.find(item => item.type === 'output_text');
         if (textContent) {
           responseText = textContent.text;
           console.log('Extracted response text:', responseText);
         } else {
-          console.log('No output_text found in content');
+          console.log('No output_text found in message content');
         }
       } else {
-        console.log('No content found in output message');
+        console.log('No message type output found');
       }
     } else {
       console.log('No output found in response');
