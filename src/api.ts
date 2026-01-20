@@ -4,11 +4,9 @@ export class NetlifyAPI {
   private baseUrl: string;
 
   constructor() {
+    // In production, use empty string (same domain)
     // In development, use localhost:8888 for Netlify Functions
-    // In production, this will be the same domain
-    this.baseUrl = true 
-      ? 'http://localhost:8888' 
-      : '';
+    this.baseUrl = ''; 
   }
 
   async sendMessage(messages: Message[]): Promise<string> {
