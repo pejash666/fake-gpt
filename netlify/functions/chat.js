@@ -1,13 +1,134 @@
 const fetch = require('node-fetch');
 
+// Web search tool definition
+const WEB_SEARCH_TOOL = {
+  type: "function",
+  name: "web_search",
+  description: "Search the web for current information. Use this when you need up-to-date information or facts you don't know.",
+  parameters: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description: "The search query to look up on the web"
+      }
+    },
+    required: ["query"]
+  }
+};
+
+// Call Parallel AI search API
+async function performWebSearch(query) {
+  const PARALLEL_API_KEY = process.env.PARALLEL_API_KEY;
+  
+  if (!PARALLEL_API_KEY) {
+    console.error('PARALLEL_API_KEY not set');
+    return { error: 'Search API not configured' };
+  }
+
+  console.log('Performing web search for:', query);
+  
+  try {
+    const response = await fetch('https://api.parallel.ai/v1beta/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${PARALLEL_API_KEY}`
+      },
+      body: JSON.stringify({ query })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Parallel AI search error:', errorText);
+      return { error: `Search failed: ${response.status}` };
+    }
+
+    const data = await response.json();
+    console.log('Search results:', JSON.stringify(data, null, 2));
+    return data;
+  } catch (error) {
+    console.error('Search error:', error);
+    return { error: error.message };
+  }
+}
+
+// Call Azure OpenAI API
+async function callAzureAPI(input, selectedModel, reasoningEffort, tools = null, AZURE_ENDPOINT, AZURE_API_KEY) {
+  const requestBody = {
+    model: selectedModel,
+    input: input,
+    max_output_tokens: 2000,
+    reasoning: {
+      effort: reasoningEffort,
+      summary: "detailed"
+    }
+  };
+
+  if (tools) {
+    requestBody.tools = tools;
+  }
+
+  console.log('Azure Request Body:', JSON.stringify(requestBody, null, 2));
+
+  const response = await fetch(`${AZURE_ENDPOINT}/openai/responses?api-version=2025-03-01-preview`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'api-key': AZURE_API_KEY,
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  console.log('Azure Response Status:', response.status, response.statusText);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Azure API error:', errorText);
+    throw new Error(`Azure API error: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+// Extract results from Azure response
+function extractResponse(data) {
+  let responseText = '';
+  let reasoningSummary = [];
+  let toolCalls = [];
+
+  if (data.output && data.output.length > 0) {
+    // Find reasoning output
+    const reasoningOutput = data.output.find(item => item.type === 'reasoning');
+    if (reasoningOutput && reasoningOutput.summary && reasoningOutput.summary.length > 0) {
+      reasoningSummary = reasoningOutput.summary.map(item => item.text || item);
+    }
+
+    // Find tool calls
+    const functionCalls = data.output.filter(item => item.type === 'function_call');
+    toolCalls = functionCalls.map(fc => ({
+      id: fc.call_id,
+      name: fc.name,
+      arguments: JSON.parse(fc.arguments || '{}')
+    }));
+
+    // Find message output
+    const messageOutput = data.output.find(item => item.type === 'message');
+    if (messageOutput && messageOutput.content && messageOutput.content.length > 0) {
+      const textContent = messageOutput.content.find(item => item.type === 'output_text');
+      if (textContent) {
+        responseText = textContent.text;
+      }
+    }
+  }
+
+  return { responseText, reasoningSummary, toolCalls };
+}
+
 exports.handler = async (event, context) => {
   console.log('=== Chat Function Started ===');
-  console.log('HTTP Method:', event.httpMethod);
-  console.log('Request Headers:', JSON.stringify(event.headers, null, 2));
   
-  // Only allow POST requests
   if (event.httpMethod !== 'POST') {
-    console.log('Method not allowed:', event.httpMethod);
     return {
       statusCode: 405,
       body: JSON.stringify({ error: 'Method not allowed' }),
@@ -15,39 +136,22 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    console.log('Request body:', event.body);
     const { messages, modelConfig } = JSON.parse(event.body);
-    console.log('Parsed messages:', JSON.stringify(messages, null, 2));
-    console.log('Model config:', JSON.stringify(modelConfig, null, 2));
     
-    // Validate required environment variables
-    const { 
-      AZURE_API_KEY, 
-      AZURE_ENDPOINT, 
-      AZURE_DEPLOYMENT_NAME 
-    } = process.env;
-
-    console.log('Environment variables check:');
-    console.log('- AZURE_API_KEY:', AZURE_API_KEY ? '***SET***' : 'MISSING');
-    console.log('- AZURE_ENDPOINT:', AZURE_ENDPOINT || 'MISSING');
-    console.log('- AZURE_DEPLOYMENT_NAME:', AZURE_DEPLOYMENT_NAME || 'MISSING');
+    const { AZURE_API_KEY, AZURE_ENDPOINT, AZURE_DEPLOYMENT_NAME } = process.env;
 
     if (!AZURE_API_KEY || !AZURE_ENDPOINT || !AZURE_DEPLOYMENT_NAME) {
-      console.log('Missing environment variables');
       return {
         statusCode: 500,
-        body: JSON.stringify({ 
-          error: 'Missing Azure configuration in environment variables' 
-        }),
+        body: JSON.stringify({ error: 'Missing Azure configuration' }),
       };
     }
 
-    // Use model from config or fallback to deployment name
     const selectedModel = modelConfig?.model || AZURE_DEPLOYMENT_NAME;
     const reasoningEffort = modelConfig?.reasoning?.effort || 'medium';
 
-    // Convert messages to input format for Responses API
-    const input = messages.map(msg => ({
+    // Convert messages to input format
+    let input = messages.map(msg => ({
       type: "message",
       role: msg.role,
       content: [
@@ -58,78 +162,41 @@ exports.handler = async (event, context) => {
       ]
     }));
 
-    console.log('Converted input format:', JSON.stringify(input, null, 2));
+    // First API call with tools
+    console.log('Making first API call with web_search tool...');
+    let data = await callAzureAPI(input, selectedModel, reasoningEffort, [WEB_SEARCH_TOOL], AZURE_ENDPOINT, AZURE_API_KEY);
+    console.log('First response:', JSON.stringify(data, null, 2));
 
-    const requestBody = {
-      model: selectedModel,
-      input: input,
-      max_output_tokens: 1000,
-      reasoning: {
-        effort: reasoningEffort,
-        summary: "detailed"
-      }
-    };
+    let { responseText, reasoningSummary, toolCalls } = extractResponse(data);
 
-    console.log('Azure Request Body:', JSON.stringify(requestBody, null, 2));
-    console.log('Making request to:', `${AZURE_ENDPOINT}/openai/responses?api-version=2025-03-01-preview`);
+    // Handle tool calls if any
+    if (toolCalls.length > 0) {
+      console.log('Tool calls detected:', toolCalls);
 
-    // Call Azure OpenAI Responses API
-    const response = await fetch(`${AZURE_ENDPOINT}/openai/responses?api-version=2025-03-01-preview`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'api-key': AZURE_API_KEY,
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    console.log('Azure Response Status:', response.status, response.statusText);
-    console.log('Azure Response Headers:', JSON.stringify(Object.fromEntries(response.headers), null, 2));
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Azure API error:', errorText);
-      return {
-        statusCode: response.status,
-        body: JSON.stringify({ 
-          error: `Azure OpenAI API error: ${response.status} ${response.statusText}` 
-        }),
-      };
-    }
-
-    const data = await response.json();
-    console.log('Azure Response Body:', JSON.stringify(data, null, 2));
-    
-    // Extract reasoning summary and response text from Responses API format
-    let responseText = '';
-    let reasoningSummary = [];
-    
-    if (data.output && data.output.length > 0) {
-      // Find reasoning output
-      const reasoningOutput = data.output.find(item => item.type === 'reasoning');
-      if (reasoningOutput && reasoningOutput.summary && reasoningOutput.summary.length > 0) {
-        reasoningSummary = reasoningOutput.summary.map(item => item.text || item);
-        console.log('Extracted reasoning summary:', reasoningSummary);
-      }
-      
-      // Find the message type output
-      const messageOutput = data.output.find(item => item.type === 'message');
-      if (messageOutput && messageOutput.content && messageOutput.content.length > 0) {
-        const textContent = messageOutput.content.find(item => item.type === 'output_text');
-        if (textContent) {
-          responseText = textContent.text;
-          console.log('Extracted response text:', responseText);
-        } else {
-          console.log('No output_text found in message content');
+      for (const toolCall of toolCalls) {
+        if (toolCall.name === 'web_search') {
+          const searchResults = await performWebSearch(toolCall.arguments.query);
+          
+          // Add function call output to input for follow-up
+          input.push({
+            type: "function_call_output",
+            call_id: toolCall.id,
+            output: JSON.stringify(searchResults)
+          });
         }
-      } else {
-        console.log('No message type output found');
       }
-    } else {
-      console.log('No output found in response');
+
+      // Second API call with tool results
+      console.log('Making second API call with tool results...');
+      data = await callAzureAPI(input, selectedModel, reasoningEffort, [WEB_SEARCH_TOOL], AZURE_ENDPOINT, AZURE_API_KEY);
+      console.log('Second response:', JSON.stringify(data, null, 2));
+
+      const secondResult = extractResponse(data);
+      responseText = secondResult.responseText;
+      reasoningSummary = [...reasoningSummary, ...secondResult.reasoningSummary];
     }
-    
-    console.log('=== Chat Function Completed Successfully ===');
+
+    console.log('=== Chat Function Completed ===');
     return {
       statusCode: 200,
       headers: {
@@ -147,9 +214,7 @@ exports.handler = async (event, context) => {
     console.error('Function error:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ 
-        error: 'Internal server error' 
-      }),
+      body: JSON.stringify({ error: 'Internal server error' }),
     };
   }
 };
