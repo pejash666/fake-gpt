@@ -99,6 +99,7 @@ function extractResponse(data) {
   let responseText = '';
   let reasoningSummary = [];
   let toolCalls = [];
+  let rawFunctionCalls = [];
 
   if (data.output && data.output.length > 0) {
     // Find reasoning output
@@ -107,8 +108,9 @@ function extractResponse(data) {
       reasoningSummary = reasoningOutput.summary.map(item => item.text || item);
     }
 
-    // Find tool calls
+    // Find tool calls and keep raw function_call objects
     const functionCalls = data.output.filter(item => item.type === 'function_call');
+    rawFunctionCalls = functionCalls;
     toolCalls = functionCalls.map(fc => ({
       id: fc.call_id,
       name: fc.name,
@@ -125,7 +127,7 @@ function extractResponse(data) {
     }
   }
 
-  return { responseText, reasoningSummary, toolCalls };
+  return { responseText, reasoningSummary, toolCalls, rawFunctionCalls };
 }
 
 exports.handler = async (event, context) => {
@@ -170,11 +172,16 @@ exports.handler = async (event, context) => {
     let data = await callAzureAPI(input, selectedModel, reasoningEffort, [WEB_SEARCH_TOOL], AZURE_ENDPOINT, AZURE_API_KEY);
     console.log('First response:', JSON.stringify(data, null, 2));
 
-    let { responseText, reasoningSummary, toolCalls } = extractResponse(data);
+    let { responseText, reasoningSummary, toolCalls, rawFunctionCalls } = extractResponse(data);
 
     // Handle tool calls if any
     if (toolCalls.length > 0) {
       console.log('Tool calls detected:', toolCalls);
+
+      // Add function_call objects from first response to input
+      for (const fc of rawFunctionCalls) {
+        input.push(fc);
+      }
 
       for (const toolCall of toolCalls) {
         if (toolCall.name === 'web_search') {
@@ -191,6 +198,7 @@ exports.handler = async (event, context) => {
 
       // Second API call with tool results
       console.log('Making second API call with tool results...');
+      console.log('Input for second call:', JSON.stringify(input, null, 2));
       data = await callAzureAPI(input, selectedModel, reasoningEffort, [WEB_SEARCH_TOOL], AZURE_ENDPOINT, AZURE_API_KEY);
       console.log('Second response:', JSON.stringify(data, null, 2));
 
