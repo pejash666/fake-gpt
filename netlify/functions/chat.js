@@ -50,7 +50,6 @@ exports.handler = async (event, context) => {
       body: JSON.stringify({
         model: AZURE_DEPLOYMENT_NAME,
         input: input,
-        temperature: 0.7,
         max_output_tokens: 1000,
         reasoning: {
           effort: "medium"
