@@ -35,7 +35,10 @@ async function performWebSearch(query) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${PARALLEL_API_KEY}`
       },
-      body: JSON.stringify({ query })
+      body: JSON.stringify({ 
+        objective: query,
+        processor: "pro"
+      })
     });
 
     if (!response.ok) {
