@@ -1,14 +1,17 @@
 import React from 'react';
 import { Message } from '../types';
 import { Bot, User, Brain } from 'lucide-react';
+import { TypewriterText } from './TypewriterText';
 
 interface ChatMessageProps {
   message: Message;
+  isLatest?: boolean;
 }
 
-export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
+export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isLatest = false }) => {
   const isUser = message.role === 'user';
   const hasReasoning = !isUser && message.reasoning && message.reasoning.length > 0;
+  const shouldAnimate = isLatest && !isUser;
 
   return (
     <div className={`flex gap-3 p-4 ${isUser ? 'bg-gray-50' : 'bg-white'}`}>
@@ -40,8 +43,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
           </div>
         )}
         
-        <div className="text-gray-800 whitespace-pre-wrap">
-          {message.content}
+        <div className="text-gray-800">
+          {shouldAnimate ? (
+            <TypewriterText text={message.content} speed={10} />
+          ) : (
+            <span className="whitespace-pre-wrap">{message.content}</span>
+          )}
         </div>
       </div>
     </div>

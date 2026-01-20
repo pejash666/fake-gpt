@@ -105,8 +105,12 @@ function App() {
             </div>
           ) : (
             <div className="h-full overflow-y-auto">
-              {messages.map((message) => (
-                <ChatMessage key={message.id} message={message} />
+              {messages.map((message, index) => (
+                <ChatMessage 
+                  key={message.id} 
+                  message={message} 
+                  isLatest={index === messages.length - 1}
+                />
               ))}
               {isLoading && (
                 <div className="flex gap-3 p-4 bg-white">
