@@ -28,17 +28,30 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // Call Azure OpenAI API
-    const response = await fetch(`${AZURE_ENDPOINT}/openai/deployments/${AZURE_DEPLOYMENT_NAME}/chat/completions?api-version=2023-12-01-preview`, {
+    // Convert messages to input format for Responses API
+    const input = messages.map(msg => ({
+      type: "message",
+      role: msg.role,
+      content: [
+        {
+          type: "input_text",
+          text: msg.content
+        }
+      ]
+    }));
+
+    // Call Azure OpenAI Responses API
+    const response = await fetch(`${AZURE_ENDPOINT}/openai/responses?api-version=2025-03-01-preview`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'api-key': AZURE_API_KEY,
       },
       body: JSON.stringify({
-        messages: messages,
-        max_tokens: 1000,
+        model: AZURE_DEPLOYMENT_NAME,
+        input: input,
         temperature: 0.7,
+        max_output_tokens: 1000,
       }),
     });
 
@@ -55,6 +68,18 @@ exports.handler = async (event, context) => {
 
     const data = await response.json();
     
+    // Extract response text from Responses API format
+    let responseText = '';
+    if (data.output && data.output.length > 0) {
+      const outputMessage = data.output[0];
+      if (outputMessage.content && outputMessage.content.length > 0) {
+        const textContent = outputMessage.content.find(item => item.type === 'output_text');
+        if (textContent) {
+          responseText = textContent.text;
+        }
+      }
+    }
+    
     return {
       statusCode: 200,
       headers: {
@@ -63,7 +88,7 @@ exports.handler = async (event, context) => {
         'Access-Control-Allow-Headers': 'Content-Type',
       },
       body: JSON.stringify({
-        response: data.choices[0].message.content
+        response: responseText
       }),
     };
 
