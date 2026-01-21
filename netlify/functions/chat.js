@@ -112,10 +112,10 @@ async function callAzureAPI(input, selectedModel, reasoningEffort, tools = null,
   const requestBody = {
     model: selectedModel,
     input: input,
-    max_output_tokens: 2000,
+    max_output_tokens: 32000,
     reasoning: {
       effort: reasoningEffort,
-      summary: "detailed"
+      summary: "concise"
     }
   };
 

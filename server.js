@@ -163,9 +163,10 @@ async function callAzureAPI(input, model, reasoningEffort, tools, endpoint, apiK
   const requestBody = {
     model: model,
     input: input,
+    max_output_tokens: 32000,
     reasoning: {
       effort: reasoningEffort,
-      summary: "detailed"
+      summary: "concise"
     },
     tools: tools
   };
