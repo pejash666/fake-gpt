@@ -1,6 +1,3 @@
-[functions]
-  timeout = 26
-
 [build]
   publish = "dist"
   command = "npm run build"
