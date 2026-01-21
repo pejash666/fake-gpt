@@ -223,7 +223,7 @@ function extractResponse(data) {
 }
 
 exports.handler = async (event, context) => {
-  console.log('=== Chat Function Started ===');
+  console.log('=== Chat Continue Function Started ===');
   
   if (event.httpMethod !== 'POST') {
     return {
@@ -238,7 +238,7 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    const { messages, modelConfig } = JSON.parse(event.body);
+    const { pendingContext, answers } = JSON.parse(event.body);
     
     const { AZURE_API_KEY, AZURE_ENDPOINT } = process.env;
 
@@ -249,59 +249,27 @@ exports.handler = async (event, context) => {
       };
     }
 
-    const selectedModel = modelConfig?.model || 'gpt-5.2';
-    const reasoningEffort = modelConfig?.reasoningEffort || 'medium';
-    const deploymentName = MODEL_DEPLOYMENT_MAP[selectedModel] || selectedModel;
+    console.log('Answers:', JSON.stringify(answers, null, 2));
 
-    console.log('Model:', selectedModel, 'Deployment:', deploymentName, 'Reasoning:', reasoningEffort);
+    const { input, rawOutputItems: pendingRawOutputItems, clarifyCallId, model, reasoningEffort } = pendingContext;
+    const deploymentName = MODEL_DEPLOYMENT_MAP[model] || model;
 
-    // System prompt for markdown formatting
-    const systemPrompt = {
-      role: 'developer',
-      content: [{
-        type: 'input_text',
-        text: `你是一个有帮助的AI助手。你必须始终使用简体中文进行回复，包括你的思考过程（reasoning/thinking）和最终回复。
+    // Add raw output items (reasoning + function_call) to input
+    for (const item of pendingRawOutputItems) {
+      input.push(item);
+    }
 
-请使用Markdown格式化你的回复以提高可读性：
-- 使用 **粗体** 强调重点
-- 使用 \`代码\` 表示行内代码，使用 \`\`\` 表示代码块并指定语言
-- 使用标题（##、###）组织内容
-- 适当使用项目符号和编号列表
-- 使用 > 表示引用
-- 使用表格展示结构化数据
+    // Add user's answers as function_call_output
+    input.push({
+      type: "function_call_output",
+      call_id: clarifyCallId,
+      output: JSON.stringify(answers)
+    });
 
-重要提醒：你的所有思考过程和最终文本回复都必须使用简体中文，不要使用英文。`
-      }]
-    };
-
-    // Build input with system prompt first
-    const input = [
-      systemPrompt,
-      ...messages.map(msg => {
-        const contentItems = [];
-        
-        if (msg.role === 'user') {
-          if (msg.content) {
-            contentItems.push({ type: 'input_text', text: msg.content });
-          }
-          if (msg.images && msg.images.length > 0) {
-            msg.images.forEach(img => {
-              contentItems.push({
-                type: 'input_image',
-                image_url: `data:${img.mimeType};base64,${img.base64}`
-              });
-            });
-          }
-        } else {
-          contentItems.push({ type: 'output_text', text: msg.content });
-        }
-        
-        return { role: msg.role, content: contentItems };
-      })
-    ];
+    console.log('Input for continue:', JSON.stringify(input, null, 2));
 
     let data = await callAzureAPI(input, deploymentName, reasoningEffort, ALL_TOOLS, AZURE_ENDPOINT, AZURE_API_KEY);
-    console.log('First response:', JSON.stringify(data, null, 2));
+    console.log('Continue response:', JSON.stringify(data, null, 2));
 
     let { responseText, reasoningSummary, toolCalls, rawOutputItems } = extractResponse(data);
 
@@ -317,12 +285,11 @@ exports.handler = async (event, context) => {
 
     while (toolCalls.length > 0) {
       iteration++;
-      console.log(`Tool calls detected (iteration ${iteration}):`, toolCalls);
+      console.log(`Continue: Tool calls detected (iteration ${iteration}):`, toolCalls);
 
-      // Check if clarify tool is called - return pending status to frontend
+      // Check for another clarify call
       const clarifyCall = toolCalls.find(tc => tc.name === 'clarify');
       if (clarifyCall) {
-        console.log('Clarify tool called, returning questions to frontend');
         return {
           statusCode: 200,
           headers: {
@@ -339,7 +306,7 @@ exports.handler = async (event, context) => {
               input: input,
               rawOutputItems: rawOutputItems,
               clarifyCallId: clarifyCall.id,
-              model: selectedModel,
+              model: model,
               reasoningEffort: reasoningEffort
             }
           }),
@@ -367,14 +334,14 @@ exports.handler = async (event, context) => {
             content: `✅ 搜索完成，获取到 ${resultCount} 条结果`,
             timestamp: Date.now()
           });
-          
+
           input.push({
             type: "function_call_output",
             call_id: toolCall.id,
             output: JSON.stringify(searchResults)
           });
         }
-        
+
         if (toolCall.name === 'web_fetch') {
           allSteps.push({ 
             type: 'tool_call', 
@@ -398,9 +365,9 @@ exports.handler = async (event, context) => {
         }
       }
 
-      console.log(`Making API call ${iteration + 1} with tool results...`);
+      console.log(`Continue: Making API call ${iteration + 1} with tool results...`);
       data = await callAzureAPI(input, deploymentName, reasoningEffort, ALL_TOOLS, AZURE_ENDPOINT, AZURE_API_KEY);
-      console.log(`Response ${iteration + 1}:`, JSON.stringify(data, null, 2));
+      console.log(`Continue: Response ${iteration + 1}:`, JSON.stringify(data, null, 2));
 
       const result = extractResponse(data);
       responseText = result.responseText;
@@ -409,18 +376,20 @@ exports.handler = async (event, context) => {
       rawOutputItems = result.rawOutputItems;
       allToolCalls = [...allToolCalls, ...toolCalls];
 
+      console.log(`Continue: After iteration ${iteration}, toolCalls.length = ${toolCalls.length}, responseText length = ${responseText.length}`);
+
       // Record reasoning from this iteration
       if (result.reasoningSummary.length > 0) {
         allSteps.push({ type: 'reasoning', content: result.reasoningSummary.join('\n'), timestamp: Date.now() });
       }
     }
-    
+
+    console.log('Continue: Loop exited, returning response...');
     const toolCallsInfo = allToolCalls.map(tc => ({
       name: tc.name,
       query: tc.arguments?.query || tc.arguments?.url || tc.arguments?.objective || (tc.arguments ? JSON.stringify(tc.arguments) : '')
     }));
 
-    console.log('=== Chat Function Completed ===');
     return {
       statusCode: 200,
       headers: {

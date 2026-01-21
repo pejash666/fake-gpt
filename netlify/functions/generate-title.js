@@ -1,6 +1,8 @@
 const fetch = require('node-fetch');
 
 exports.handler = async (event, context) => {
+  console.log('=== Generate Title Request ===');
+  
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -10,6 +12,7 @@ exports.handler = async (event, context) => {
 
   try {
     const { message } = JSON.parse(event.body);
+    console.log('Message:', message);
     
     const { AZURE_API_KEY, AZURE_ENDPOINT } = process.env;
 
@@ -42,6 +45,8 @@ exports.handler = async (event, context) => {
       max_output_tokens: 1500
     };
 
+    console.log('Title request body:', JSON.stringify(requestBody, null, 2));
+
     const response = await fetch(`${AZURE_ENDPOINT}/openai/responses?api-version=2025-03-01-preview`, {
       method: 'POST',
       headers: {
@@ -61,6 +66,7 @@ exports.handler = async (event, context) => {
     }
 
     const data = await response.json();
+    console.log('Title API response:', JSON.stringify(data, null, 2));
     let title = '';
     
     if (data.output) {
