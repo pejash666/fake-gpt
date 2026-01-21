@@ -72,10 +72,6 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const generateTitleFallback = (content: string) => {
-    return content.slice(0, 20);
-  };
-
   const generateTitleAsync = async (conversationId: string, content: string) => {
     console.log('generateTitleAsync called:', conversationId, content);
     try {
