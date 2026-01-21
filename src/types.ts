@@ -1,6 +1,34 @@
 export interface ToolCall {
   name: string;
-  query: string;
+  query?: string;
+  questions?: ClarifyQuestion[];
+}
+
+export interface AgentStep {
+  type: 'reasoning' | 'tool_call' | 'tool_result';
+  content: string;
+  timestamp?: number;
+}
+
+export interface ClarifyQuestion {
+  id: string;
+  question: string;
+  type: 'single_choice' | 'multiple_choice' | 'text';
+  options?: string[];
+  required?: boolean;
+}
+
+export interface ClarifyAnswer {
+  questionId: string;
+  answer: string | string[];
+}
+
+export interface PendingContext {
+  input: unknown[];
+  rawOutputItems: unknown[];
+  clarifyCallId: string;
+  model: string;
+  reasoningEffort: string;
 }
 
 export interface Message {
@@ -9,7 +37,16 @@ export interface Message {
   content: string;
   reasoning?: string[];
   toolCalls?: ToolCall[];
+  steps?: AgentStep[];
   timestamp: Date;
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  messages: Message[];
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface ModelConfig {

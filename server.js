@@ -1,0 +1,489 @@
+import express from 'express';
+import cors from 'cors';
+import fetch from 'node-fetch';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Tool definitions
+const WEB_SEARCH_TOOL = {
+  type: "function",
+  name: "web_search",
+  description: "Search the web for current information. Use this when you need up-to-date information or facts you don't know.",
+  parameters: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description: "The search query to look up on the web"
+      }
+    },
+    required: ["query"]
+  }
+};
+
+const CLARIFY_TOOL = {
+  type: "function",
+  name: "clarify",
+  description: "Ask the user clarifying questions when their request is ambiguous or you need more information to provide a good answer. Use this to gather specific details before proceeding.",
+  parameters: {
+    type: "object",
+    properties: {
+      questions: {
+        type: "array",
+        description: "List of questions to ask the user",
+        items: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Unique identifier for this question"
+            },
+            question: {
+              type: "string",
+              description: "The question text to display"
+            },
+            type: {
+              type: "string",
+              enum: ["single_choice", "multiple_choice", "text"],
+              description: "Type of input: single_choice (radio), multiple_choice (checkbox), or text (free input)"
+            },
+            options: {
+              type: "array",
+              items: { type: "string" },
+              description: "Options for single_choice or multiple_choice questions"
+            },
+            required: {
+              type: "boolean",
+              description: "Whether this question must be answered"
+            }
+          },
+          required: ["id", "question", "type"]
+        }
+      }
+    },
+    required: ["questions"]
+  }
+};
+
+const ALL_TOOLS = [WEB_SEARCH_TOOL, CLARIFY_TOOL];
+
+async function performWebSearch(query) {
+  const PARALLEL_API_KEY = process.env.PARALLEL_API_KEY;
+  
+  if (!PARALLEL_API_KEY) {
+    console.error('PARALLEL_API_KEY not set');
+    return { error: 'Search API not configured' };
+  }
+
+  console.log('Performing web search for:', query);
+  
+  try {
+    const response = await fetch('https://api.parallel.ai/v1beta/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${PARALLEL_API_KEY}`
+      },
+      body: JSON.stringify({ 
+        objective: query,
+        processor: "pro"
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Parallel AI search error:', errorText);
+      return { error: `Search failed: ${response.status}` };
+    }
+
+    const data = await response.json();
+    console.log('Search results:', JSON.stringify(data, null, 2));
+    return data;
+  } catch (error) {
+    console.error('Search error:', error);
+    return { error: error.message };
+  }
+}
+
+async function callAzureAPI(input, model, reasoningEffort, tools, endpoint, apiKey) {
+  const requestBody = {
+    model: model,
+    input: input,
+    reasoning: {
+      effort: reasoningEffort,
+      summary: "detailed"
+    },
+    tools: tools
+  };
+
+  console.log('Azure Request Body:', JSON.stringify(requestBody, null, 2));
+
+  const response = await fetch(`${endpoint}/openai/responses?api-version=2025-03-01-preview`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'api-key': apiKey,
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Azure API Error:', errorText);
+    throw new Error(`Azure API Error: ${response.status} - ${errorText}`);
+  }
+
+  return response.json();
+}
+
+function extractResponse(data) {
+  let responseText = '';
+  let reasoningSummary = [];
+  let toolCalls = [];
+  let rawOutputItems = [];
+
+  if (data.output && data.output.length > 0) {
+    rawOutputItems = data.output.filter(item => 
+      item.type === 'reasoning' || item.type === 'function_call'
+    );
+
+    const reasoningOutput = data.output.find(item => item.type === 'reasoning');
+    if (reasoningOutput && reasoningOutput.summary && reasoningOutput.summary.length > 0) {
+      reasoningSummary = reasoningOutput.summary.map(item => item.text || item);
+    }
+
+    const functionCalls = data.output.filter(item => item.type === 'function_call');
+    toolCalls = functionCalls.map(fc => ({
+      id: fc.call_id,
+      name: fc.name,
+      arguments: JSON.parse(fc.arguments || '{}')
+    }));
+
+    const messageOutput = data.output.find(item => item.type === 'message');
+    if (messageOutput && messageOutput.content && messageOutput.content.length > 0) {
+      const textContent = messageOutput.content.find(item => item.type === 'output_text');
+      if (textContent) {
+        responseText = textContent.text;
+      }
+    }
+  }
+
+  return { responseText, reasoningSummary, toolCalls, rawOutputItems };
+}
+
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { messages, modelConfig } = req.body;
+    
+    const AZURE_API_KEY = process.env.AZURE_API_KEY;
+    const AZURE_ENDPOINT = process.env.AZURE_ENDPOINT;
+    
+    if (!AZURE_API_KEY || !AZURE_ENDPOINT) {
+      return res.status(500).json({ error: 'Azure API configuration missing' });
+    }
+
+    const selectedModel = modelConfig?.model || 'gpt-5.2';
+    const reasoningEffort = modelConfig?.reasoningEffort || 'medium';
+
+    // Map frontend model name to Azure deployment name
+    const MODEL_DEPLOYMENT_MAP = {
+      'gpt-5.1': 'gpt-5.1-PTU',
+      'gpt-5.2': 'gpt-5.2'
+    };
+    const deploymentName = MODEL_DEPLOYMENT_MAP[selectedModel] || selectedModel;
+
+    console.log('=== Chat Request ===');
+    console.log('Model:', selectedModel, 'Deployment:', deploymentName, 'Reasoning:', reasoningEffort);
+
+    // System prompt for markdown formatting
+    const systemPrompt = {
+      role: 'developer',
+      content: [{
+        type: 'input_text',
+        text: `你是一个有帮助的AI助手。你必须始终使用简体中文进行回复，包括你的思考过程（reasoning/thinking）和最终回复。
+
+请使用Markdown格式化你的回复以提高可读性：
+- 使用 **粗体** 强调重点
+- 使用 \`代码\` 表示行内代码，使用 \`\`\` 表示代码块并指定语言
+- 使用标题（##、###）组织内容
+- 适当使用项目符号和编号列表
+- 使用 > 表示引用
+- 使用表格展示结构化数据
+
+重要提醒：你的所有思考过程和最终文本回复都必须使用简体中文，不要使用英文。`
+      }]
+    };
+
+    // Build input with system prompt first
+    const input = [
+      systemPrompt,
+      ...messages.map(msg => ({
+        role: msg.role,
+        content: [{
+          type: msg.role === 'assistant' ? 'output_text' : 'input_text',
+          text: msg.content
+        }]
+      }))
+    ];
+
+    let data = await callAzureAPI(input, deploymentName, reasoningEffort, ALL_TOOLS, AZURE_ENDPOINT, AZURE_API_KEY);
+    console.log('First response:', JSON.stringify(data, null, 2));
+
+    let { responseText, reasoningSummary, toolCalls, rawOutputItems } = extractResponse(data);
+
+    // Handle tool calls in a loop until model returns final text
+    let allToolCalls = [...toolCalls];
+    let allSteps = [];
+    let iteration = 0;
+
+    // Record initial reasoning if any
+    if (reasoningSummary.length > 0) {
+      allSteps.push({ type: 'reasoning', content: reasoningSummary.join('\n'), timestamp: Date.now() });
+    }
+
+    while (toolCalls.length > 0) {
+      iteration++;
+      console.log(`Tool calls detected (iteration ${iteration}):`, toolCalls);
+
+      // Check if clarify tool is called - return pending status to frontend
+      const clarifyCall = toolCalls.find(tc => tc.name === 'clarify');
+      if (clarifyCall) {
+        console.log('Clarify tool called, returning questions to frontend');
+        return res.json({
+          status: 'pending_clarification',
+          response: '',
+          reasoning: reasoningSummary,
+          toolCalls: [{ name: 'clarify', questions: clarifyCall.arguments.questions }],
+          pendingContext: {
+            input: input,
+            rawOutputItems: rawOutputItems,
+            clarifyCallId: clarifyCall.id,
+            model: selectedModel,
+            reasoningEffort: reasoningEffort
+          }
+        });
+      }
+
+      // Handle other tool calls (web_search)
+      for (const item of rawOutputItems) {
+        input.push(item);
+      }
+
+      for (const toolCall of toolCalls) {
+        if (toolCall.name === 'web_search') {
+          // Record tool call step
+          allSteps.push({ 
+            type: 'tool_call', 
+            content: `🔍 正在搜索: ${toolCall.arguments.query}`,
+            timestamp: Date.now()
+          });
+
+          const searchResults = await performWebSearch(toolCall.arguments.query);
+          
+          // Record tool result step
+          const resultCount = searchResults.results?.length || 0;
+          allSteps.push({
+            type: 'tool_result',
+            content: `✅ 搜索完成，获取到 ${resultCount} 条结果`,
+            timestamp: Date.now()
+          });
+          
+          input.push({
+            type: "function_call_output",
+            call_id: toolCall.id,
+            output: JSON.stringify(searchResults)
+          });
+        }
+      }
+
+      console.log(`Making API call ${iteration + 1} with tool results...`);
+      data = await callAzureAPI(input, deploymentName, reasoningEffort, ALL_TOOLS, AZURE_ENDPOINT, AZURE_API_KEY);
+      console.log(`Response ${iteration + 1}:`, JSON.stringify(data, null, 2));
+
+      const result = extractResponse(data);
+      responseText = result.responseText;
+      reasoningSummary = [...reasoningSummary, ...result.reasoningSummary];
+      toolCalls = result.toolCalls;
+      rawOutputItems = result.rawOutputItems;
+      allToolCalls = [...allToolCalls, ...toolCalls];
+
+      // Record reasoning from this iteration
+      if (result.reasoningSummary.length > 0) {
+        allSteps.push({ type: 'reasoning', content: result.reasoningSummary.join('\n'), timestamp: Date.now() });
+      }
+    }
+    
+    const toolCallsInfo = allToolCalls.map(tc => ({
+      name: tc.name,
+      query: tc.arguments?.query || tc.arguments?.objective || (tc.arguments ? JSON.stringify(tc.arguments) : '')
+    }));
+
+    res.json({
+      status: 'complete',
+      response: responseText,
+      reasoning: reasoningSummary,
+      toolCalls: toolCallsInfo,
+      steps: allSteps
+    });
+
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Continue after clarification
+app.post('/api/chat/continue', async (req, res) => {
+  try {
+    const { pendingContext, answers } = req.body;
+    
+    const AZURE_API_KEY = process.env.AZURE_API_KEY;
+    const AZURE_ENDPOINT = process.env.AZURE_ENDPOINT;
+    
+    if (!AZURE_API_KEY || !AZURE_ENDPOINT) {
+      return res.status(500).json({ error: 'Azure API configuration missing' });
+    }
+
+    console.log('=== Continue after clarification ===');
+    console.log('Answers:', JSON.stringify(answers, null, 2));
+
+    const { input, rawOutputItems: pendingRawOutputItems, clarifyCallId, model, reasoningEffort } = pendingContext;
+
+    // Map frontend model name to Azure deployment name
+    const MODEL_DEPLOYMENT_MAP = {
+      'gpt-5.1': 'gpt-5.1-PTU',
+      'gpt-5.2': 'gpt-5.2'
+    };
+    const deploymentName = MODEL_DEPLOYMENT_MAP[model] || model;
+
+    // Add raw output items (reasoning + function_call) to input
+    for (const item of pendingRawOutputItems) {
+      input.push(item);
+    }
+
+    // Add user's answers as function_call_output
+    input.push({
+      type: "function_call_output",
+      call_id: clarifyCallId,
+      output: JSON.stringify(answers)
+    });
+
+    console.log('Input for continue:', JSON.stringify(input, null, 2));
+
+    let data = await callAzureAPI(input, deploymentName, reasoningEffort, ALL_TOOLS, AZURE_ENDPOINT, AZURE_API_KEY);
+    console.log('Continue response:', JSON.stringify(data, null, 2));
+
+    let { responseText, reasoningSummary, toolCalls, rawOutputItems } = extractResponse(data);
+
+    // Handle tool calls in a loop until model returns final text
+    let allToolCalls = [...toolCalls];
+    let allSteps = [];
+    let iteration = 0;
+
+    // Record initial reasoning if any
+    if (reasoningSummary.length > 0) {
+      allSteps.push({ type: 'reasoning', content: reasoningSummary.join('\n'), timestamp: Date.now() });
+    }
+
+    while (toolCalls.length > 0) {
+      iteration++;
+      console.log(`Continue: Tool calls detected (iteration ${iteration}):`, toolCalls);
+
+      // Check for another clarify call
+      const clarifyCall = toolCalls.find(tc => tc.name === 'clarify');
+      if (clarifyCall) {
+        return res.json({
+          status: 'pending_clarification',
+          response: '',
+          reasoning: reasoningSummary,
+          toolCalls: [{ name: 'clarify', questions: clarifyCall.arguments.questions }],
+          pendingContext: {
+            input: input,
+            rawOutputItems: rawOutputItems,
+            clarifyCallId: clarifyCall.id,
+            model: model,
+            reasoningEffort: reasoningEffort
+          }
+        });
+      }
+
+      // Handle other tool calls (web_search)
+      for (const item of rawOutputItems) {
+        input.push(item);
+      }
+
+      for (const toolCall of toolCalls) {
+        if (toolCall.name === 'web_search') {
+          // Record tool call step
+          allSteps.push({ 
+            type: 'tool_call', 
+            content: `🔍 正在搜索: ${toolCall.arguments.query}`,
+            timestamp: Date.now()
+          });
+
+          const searchResults = await performWebSearch(toolCall.arguments.query);
+          
+          // Record tool result step
+          const resultCount = searchResults.results?.length || 0;
+          allSteps.push({
+            type: 'tool_result',
+            content: `✅ 搜索完成，获取到 ${resultCount} 条结果`,
+            timestamp: Date.now()
+          });
+
+          input.push({
+            type: "function_call_output",
+            call_id: toolCall.id,
+            output: JSON.stringify(searchResults)
+          });
+        }
+      }
+
+      console.log(`Continue: Making API call ${iteration + 1} with tool results...`);
+      data = await callAzureAPI(input, deploymentName, reasoningEffort, ALL_TOOLS, AZURE_ENDPOINT, AZURE_API_KEY);
+      console.log(`Continue: Response ${iteration + 1}:`, JSON.stringify(data, null, 2));
+
+      const result = extractResponse(data);
+      responseText = result.responseText;
+      reasoningSummary = [...reasoningSummary, ...result.reasoningSummary];
+      toolCalls = result.toolCalls;
+      rawOutputItems = result.rawOutputItems;
+      allToolCalls = [...allToolCalls, ...toolCalls];
+
+      console.log(`Continue: After iteration ${iteration}, toolCalls.length = ${toolCalls.length}, responseText length = ${responseText.length}`);
+
+      // Record reasoning from this iteration
+      if (result.reasoningSummary.length > 0) {
+        allSteps.push({ type: 'reasoning', content: result.reasoningSummary.join('\n'), timestamp: Date.now() });
+      }
+    }
+
+    console.log('Continue: Loop exited, returning response...');
+    const toolCallsInfo = allToolCalls.map(tc => ({
+      name: tc.name,
+      query: tc.arguments?.query || tc.arguments?.objective || (tc.arguments ? JSON.stringify(tc.arguments) : '')
+    }));
+
+    res.json({
+      status: 'complete',
+      response: responseText,
+      reasoning: reasoningSummary,
+      toolCalls: toolCallsInfo,
+      steps: allSteps
+    });
+
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+const PORT = 3002;
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+});
