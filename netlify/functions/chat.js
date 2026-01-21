@@ -17,6 +17,24 @@ const WEB_SEARCH_TOOL = {
   }
 };
 
+const WEB_FETCH_TOOL = {
+  type: "function",
+  name: "web_fetch",
+  description: "Fetch and extract content from a specific URL. Use this when you need to read the content of a webpage, article, or document from a given URL.",
+  parameters: {
+    type: "object",
+    properties: {
+      url: {
+        type: "string",
+        description: "The URL of the webpage to fetch and extract content from"
+      }
+    },
+    required: ["url"]
+  }
+};
+
+const ALL_TOOLS = [WEB_SEARCH_TOOL, WEB_FETCH_TOOL];
+
 // Call Parallel AI search API
 async function performWebSearch(query) {
   const PARALLEL_API_KEY = process.env.PARALLEL_API_KEY;
@@ -52,6 +70,39 @@ async function performWebSearch(query) {
     return data;
   } catch (error) {
     console.error('Search error:', error);
+    return { error: error.message };
+  }
+}
+
+async function performWebFetch(url) {
+  const JINA_API_KEY = process.env.JINA_API_KEY;
+  
+  if (!JINA_API_KEY) {
+    console.error('JINA_API_KEY not set');
+    return { error: 'Web fetch API not configured' };
+  }
+
+  console.log('Fetching URL:', url);
+  
+  try {
+    const response = await fetch(`https://r.jina.ai/${url}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${JINA_API_KEY}`
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Jina fetch error:', errorText);
+      return { error: `Fetch failed: ${response.status}` };
+    }
+
+    const content = await response.text();
+    console.log('Fetched content length:', content.length);
+    return { url, content };
+  } catch (error) {
+    console.error('Fetch error:', error);
     return { error: error.message };
   }
 }
@@ -172,8 +223,8 @@ exports.handler = async (event, context) => {
     }));
 
     // First API call with tools
-    console.log('Making first API call with web_search tool...');
-    let data = await callAzureAPI(input, selectedModel, reasoningEffort, [WEB_SEARCH_TOOL], AZURE_ENDPOINT, AZURE_API_KEY);
+    console.log('Making first API call with tools...');
+    let data = await callAzureAPI(input, selectedModel, reasoningEffort, ALL_TOOLS, AZURE_ENDPOINT, AZURE_API_KEY);
     console.log('First response:', JSON.stringify(data, null, 2));
 
     let { responseText, reasoningSummary, toolCalls, rawOutputItems } = extractResponse(data);
@@ -198,12 +249,22 @@ exports.handler = async (event, context) => {
             output: JSON.stringify(searchResults)
           });
         }
+
+        if (toolCall.name === 'web_fetch') {
+          const fetchResult = await performWebFetch(toolCall.arguments.url);
+          
+          input.push({
+            type: "function_call_output",
+            call_id: toolCall.id,
+            output: JSON.stringify(fetchResult)
+          });
+        }
       }
 
       // Second API call with tool results
       console.log('Making second API call with tool results...');
       console.log('Input for second call:', JSON.stringify(input, null, 2));
-      data = await callAzureAPI(input, selectedModel, reasoningEffort, [WEB_SEARCH_TOOL], AZURE_ENDPOINT, AZURE_API_KEY);
+      data = await callAzureAPI(input, selectedModel, reasoningEffort, ALL_TOOLS, AZURE_ENDPOINT, AZURE_API_KEY);
       console.log('Second response:', JSON.stringify(data, null, 2));
 
       const secondResult = extractResponse(data);
@@ -214,7 +275,7 @@ exports.handler = async (event, context) => {
     // Format tool calls for frontend display
     const toolCallsInfo = toolCalls.map(tc => ({
       name: tc.name,
-      query: tc.arguments.query || tc.arguments.objective || JSON.stringify(tc.arguments)
+      query: tc.arguments.query || tc.arguments.url || tc.arguments.objective || JSON.stringify(tc.arguments)
     }));
 
     console.log('=== Chat Function Completed ===');

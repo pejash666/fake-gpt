@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Message } from '../types';
-import { Brain, Globe, HelpCircle, Copy, Loader2, CheckCircle, ChevronRight, ChevronDown } from 'lucide-react';
+import { Brain, Globe, HelpCircle, Copy, Loader2, CheckCircle, ChevronRight, ChevronDown, Link } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -20,11 +20,13 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, username = 'Y
   const hasSteps = !isUser && message.steps && message.steps.length > 0;
 
   const webSearchCalls = message.toolCalls?.filter(tc => tc.name === 'web_search') || [];
+  const webFetchCalls = message.toolCalls?.filter(tc => tc.name === 'web_fetch') || [];
   const clarifyCalls = message.toolCalls?.filter(tc => tc.name === 'clarify') || [];
 
   const [showReasoning, setShowReasoning] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
   const [showWebSearch, setShowWebSearch] = useState(false);
+  const [showWebFetch, setShowWebFetch] = useState(false);
 
   return (
     <div className={`flex gap-3 p-4 ${isUser ? 'bg-gray-50' : 'bg-white'}`}>
@@ -54,6 +56,29 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, username = 'Y
                   <div key={index} className="flex items-center gap-2">
                     <span className="text-blue-500">🔍</span>
                     <span>Searching: <code className="bg-blue-100 px-1.5 py-0.5 rounded text-xs">{tc.query}</code></span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {webFetchCalls.length > 0 && (
+          <div className="mb-3 bg-green-50 rounded-lg border border-green-200">
+            <button
+              onClick={() => setShowWebFetch(!showWebFetch)}
+              className="w-full p-3 flex items-center gap-1.5 text-xs text-green-600 hover:bg-green-100 rounded-lg transition-colors"
+            >
+              {showWebFetch ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              <Link className="w-3.5 h-3.5" />
+              <span className="font-medium">Web Fetch ({webFetchCalls.length})</span>
+            </button>
+            {showWebFetch && (
+              <div className="px-3 pb-3 text-green-700 text-sm">
+                {webFetchCalls.map((tc, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <span className="text-green-500">🌐</span>
+                    <span>Fetching: <code className="bg-green-100 px-1.5 py-0.5 rounded text-xs break-all">{tc.query}</code></span>
                   </div>
                 ))}
               </div>
