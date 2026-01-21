@@ -96,4 +96,28 @@ export class NetlifyAPI {
       pendingContext: data.pendingContext
     };
   }
+
+  async generateTitle(message: string): Promise<string> {
+    const endpoint = this.isLocal ? '/api/generate-title' : '/.netlify/functions/generate-title';
+    try {
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message }),
+      });
+
+      if (!response.ok) {
+        console.error('Failed to generate title:', response.status);
+        return message.slice(0, 20);
+      }
+
+      const data = await response.json();
+      return data.title || message.slice(0, 20);
+    } catch (error) {
+      console.error('Error generating title:', error);
+      return message.slice(0, 20);
+    }
+  }
 }

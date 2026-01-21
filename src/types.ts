@@ -31,10 +31,17 @@ export interface PendingContext {
   reasoningEffort: string;
 }
 
+export interface MessageImage {
+  id: string;
+  base64: string;
+  mimeType: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  images?: MessageImage[];
   reasoning?: string[];
   toolCalls?: ToolCall[];
   steps?: AgentStep[];
@@ -44,6 +51,7 @@ export interface Message {
 export interface Conversation {
   id: string;
   title: string;
+  titleLoading?: boolean;
   messages: Message[];
   createdAt: Date;
   updatedAt: Date;

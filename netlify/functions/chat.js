@@ -211,16 +211,27 @@ exports.handler = async (event, context) => {
     const reasoningEffort = modelConfig?.reasoning?.effort || 'medium';
 
     // Convert messages to input format
-    let input = messages.map(msg => ({
-      type: "message",
-      role: msg.role,
-      content: [
-        {
-          type: msg.role === 'assistant' ? "output_text" : "input_text",
-          text: msg.content
+    let input = messages.map(msg => {
+      const contentItems = [];
+      
+      if (msg.role === 'user') {
+        if (msg.content) {
+          contentItems.push({ type: 'input_text', text: msg.content });
         }
-      ]
-    }));
+        if (msg.images && msg.images.length > 0) {
+          msg.images.forEach(img => {
+            contentItems.push({
+              type: 'input_image',
+              image_url: `data:${img.mimeType};base64,${img.base64}`
+            });
+          });
+        }
+      } else {
+        contentItems.push({ type: 'output_text', text: msg.content });
+      }
+      
+      return { type: "message", role: msg.role, content: contentItems };
+    });
 
     // First API call with tools
     console.log('Making first API call with tools...');

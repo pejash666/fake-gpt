@@ -1,6 +1,6 @@
 import React from 'react';
 import { Conversation } from '../types';
-import { MessageSquare, Plus, Trash2 } from 'lucide-react';
+import { MessageSquare, Plus, Trash2, Loader2 } from 'lucide-react';
 
 interface SidebarProps {
   conversations: Conversation[];
@@ -59,7 +59,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 <MessageSquare className="w-4 h-4 flex-shrink-0 text-gray-400" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm truncate">{conv.title}</div>
+                  <div className="text-sm truncate">
+                    {conv.titleLoading ? (
+                      <span className="flex items-center gap-1.5 text-gray-400">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        生成标题中...
+                      </span>
+                    ) : (
+                      conv.title || '新对话'
+                    )}
+                  </div>
                   <div className="text-xs text-gray-500">{formatDate(conv.updatedAt)}</div>
                 </div>
                 <button

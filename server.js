@@ -7,7 +7,7 @@ dotenv.config();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // Tool definitions
 const WEB_SEARCH_TOOL = {
@@ -272,13 +272,27 @@ app.post('/api/chat', async (req, res) => {
     // Build input with system prompt first
     const input = [
       systemPrompt,
-      ...messages.map(msg => ({
-        role: msg.role,
-        content: [{
-          type: msg.role === 'assistant' ? 'output_text' : 'input_text',
-          text: msg.content
-        }]
-      }))
+      ...messages.map(msg => {
+        const contentItems = [];
+        
+        if (msg.role === 'user') {
+          if (msg.content) {
+            contentItems.push({ type: 'input_text', text: msg.content });
+          }
+          if (msg.images && msg.images.length > 0) {
+            msg.images.forEach(img => {
+              contentItems.push({
+                type: 'input_image',
+                image_url: `data:${img.mimeType};base64,${img.base64}`
+              });
+            });
+          }
+        } else {
+          contentItems.push({ type: 'output_text', text: msg.content });
+        }
+        
+        return { role: msg.role, content: contentItems };
+      })
     ];
 
     let data = await callAzureAPI(input, deploymentName, reasoningEffort, ALL_TOOLS, AZURE_ENDPOINT, AZURE_API_KEY);
@@ -573,6 +587,80 @@ app.post('/api/chat/continue', async (req, res) => {
 
   } catch (error) {
     console.error('Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate conversation title
+app.post('/api/generate-title', async (req, res) => {
+  console.log('=== Generate Title Request ===');
+  try {
+    const { message } = req.body;
+    console.log('Message:', message);
+    
+    const AZURE_API_KEY = process.env.AZURE_API_KEY;
+    const AZURE_ENDPOINT = process.env.AZURE_ENDPOINT;
+    
+    if (!AZURE_API_KEY || !AZURE_ENDPOINT) {
+      return res.status(500).json({ error: 'Azure API configuration missing' });
+    }
+
+    const systemPrompt = {
+      role: 'developer',
+      content: [{
+        type: 'input_text',
+        text: '你是一个起名专家。根据用户的消息内容，为这个对话生成一个简短的标题（不超过20个字符）。只返回标题文本，不要加引号或其他格式。'
+      }]
+    };
+
+    const input = [
+      systemPrompt,
+      {
+        role: 'user',
+        content: [{ type: 'input_text', text: message }]
+      }
+    ];
+
+    const requestBody = {
+      model: 'gpt-5-nano',
+      input: input,
+      max_output_tokens: 1500
+    };
+
+    console.log('Title request body:', JSON.stringify(requestBody, null, 2));
+
+    const response = await fetch(`${AZURE_ENDPOINT}/openai/responses?api-version=2025-03-01-preview`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': AZURE_API_KEY,
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Title generation error:', errorText);
+      return res.status(500).json({ error: 'Failed to generate title' });
+    }
+
+    const data = await response.json();
+    console.log('Title API response:', JSON.stringify(data, null, 2));
+    let title = '';
+    
+    if (data.output) {
+      const messageOutput = data.output.find(item => item.type === 'message');
+      if (messageOutput?.content) {
+        const textContent = messageOutput.content.find(item => item.type === 'output_text');
+        if (textContent) {
+          title = textContent.text.trim();
+        }
+      }
+    }
+
+    res.json({ title: title || message.slice(0, 20) });
+  } catch (error) {
+    console.error('Error generating title:', error);
     res.status(500).json({ error: error.message });
   }
 });

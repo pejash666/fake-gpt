@@ -159,6 +159,18 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, username = 'Y
         
         {isUser ? (
           <div className="text-gray-800 prose prose-sm max-w-none">
+            {message.images && message.images.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3 not-prose">
+                {message.images.map(img => (
+                  <img 
+                    key={img.id}
+                    src={`data:${img.mimeType};base64,${img.base64}`}
+                    alt="User uploaded"
+                    className="max-h-64 max-w-full rounded-lg border border-gray-200 object-contain"
+                  />
+                ))}
+              </div>
+            )}
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {message.content}
             </ReactMarkdown>

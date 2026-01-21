@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Message, ModelConfig, ClarifyQuestion, ClarifyAnswer, PendingContext, Conversation } from './types';
+import { Message, ModelConfig, ClarifyQuestion, ClarifyAnswer, PendingContext, Conversation, MessageImage } from './types';
 import { NetlifyAPI } from './api';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
@@ -72,8 +72,24 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const generateTitle = (content: string) => {
-    return content.slice(0, 30) + (content.length > 30 ? '...' : '');
+  const generateTitleFallback = (content: string) => {
+    return content.slice(0, 20);
+  };
+
+  const generateTitleAsync = async (conversationId: string, content: string) => {
+    console.log('generateTitleAsync called:', conversationId, content);
+    try {
+      const title = await api.generateTitle(content);
+      console.log('Generated title:', title);
+      setConversations(prev => prev.map(conv =>
+        conv.id === conversationId ? { ...conv, title, titleLoading: false } : conv
+      ));
+    } catch (error) {
+      console.error('Failed to generate title:', error);
+      setConversations(prev => prev.map(conv =>
+        conv.id === conversationId ? { ...conv, title: content.slice(0, 20), titleLoading: false } : conv
+      ));
+    }
   };
 
   const handleNewConversation = () => {
@@ -99,25 +115,29 @@ function App() {
     }
   };
 
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (content: string, images?: MessageImage[]) => {
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
       content,
+      images,
       timestamp: new Date(),
     };
 
     // Create new conversation if none exists
     if (!currentConversationId) {
+      const newConvId = Date.now().toString();
       const newConv: Conversation = {
-        id: Date.now().toString(),
-        title: generateTitle(content),
+        id: newConvId,
+        title: '',
+        titleLoading: true,
         messages: [userMessage],
         createdAt: new Date(),
         updatedAt: new Date()
       };
       setConversations(prev => [newConv, ...prev]);
       setCurrentConversationId(newConv.id);
+      generateTitleAsync(newConvId, content);
     }
 
     setMessages(prev => [...prev, userMessage]);
