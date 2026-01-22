@@ -629,10 +629,18 @@ app.post('/api/chat-stream', async (req, res) => {
       const { input: savedInput, rawOutputItems, clarifyCallId, model, reasoningEffort: effort } = pendingContext;
       console.log('Continue - savedInput length:', savedInput.length);
       console.log('Continue - rawOutputItems:', JSON.stringify(rawOutputItems, null, 2));
-      console.log('Continue - clarifyCallId:', clarifyCallId);
+      console.log('Continue - clarifyCallId from pendingContext:', clarifyCallId);
+      
+      // Find the actual call_id from rawOutputItems
+      const clarifyFunctionCall = rawOutputItems.find(item => 
+        item.type === 'function_call' && item.name === 'clarify'
+      );
+      const actualCallId = clarifyFunctionCall?.call_id || clarifyCallId;
+      console.log('Continue - actualCallId from rawOutputItems:', actualCallId);
+      
       input = [...savedInput, ...rawOutputItems, {
         type: "function_call_output",
-        call_id: clarifyCallId,
+        call_id: actualCallId,
         output: JSON.stringify(answers)
       }];
       console.log('Continue - final input:', JSON.stringify(input, null, 2));

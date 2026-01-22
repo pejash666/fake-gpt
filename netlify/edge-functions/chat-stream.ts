@@ -244,9 +244,21 @@ export default async (request: Request, context: Context) => {
         if (isContinueMode) {
           console.log('Mode: Continue after clarify');
           const { input: savedInput, rawOutputItems, clarifyCallId, model, reasoningEffort: effort } = pendingContext;
+          
+          // Debug: log the rawOutputItems to verify structure
+          console.log('Continue - rawOutputItems:', JSON.stringify(rawOutputItems, null, 2));
+          console.log('Continue - clarifyCallId from pendingContext:', clarifyCallId);
+          
+          // Find the actual call_id from rawOutputItems
+          const clarifyFunctionCall = rawOutputItems.find((item: any) => 
+            item.type === 'function_call' && item.name === 'clarify'
+          ) as any;
+          const actualCallId = clarifyFunctionCall?.call_id || clarifyCallId;
+          console.log('Continue - actualCallId from rawOutputItems:', actualCallId);
+          
           input = [...savedInput, ...rawOutputItems, {
             type: "function_call_output",
-            call_id: clarifyCallId,
+            call_id: actualCallId,
             output: JSON.stringify(answers)
           }];
           selectedModel = model;
