@@ -6,7 +6,7 @@ import { ChatInput } from './components/ChatInput';
 import { ModelSelector } from './components/ModelSelector';
 import { UserSettings } from './components/UserSettings';
 import { ClarifyForm } from './components/ClarifyForm';
-import { MessageSquare, Loader2, User, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { MessageSquare, User, PanelLeftClose, PanelLeft } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import logo from './assets/logo.png';
 import nameLogo from './assets/Name.png';
@@ -136,55 +136,109 @@ function App() {
       generateTitleAsync(newConvId, content);
     }
 
-    setMessages(prev => [...prev, userMessage]);
+    // Create empty assistant message for streaming
+    const assistantMsgId = (Date.now() + 1).toString();
+    const assistantMessage: Message = {
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '',
+      reasoning: [],
+      toolCalls: [],
+      steps: [],
+      timestamp: new Date(),
+    };
+
+    setMessages(prev => [...prev, userMessage, assistantMessage]);
     setIsLoading(true);
 
     try {
-      const result = await api.sendMessage([...messages, userMessage], modelConfig);
-      
-      // Check if GPT needs clarification
-      if (result.status === 'pending_clarification' && result.pendingContext) {
-        const clarifyToolCall = result.toolCalls.find(tc => tc.name === 'clarify');
-        if (clarifyToolCall?.questions) {
-          // Add a placeholder message showing clarification is needed
-          const clarifyMessage: Message = {
-            id: (Date.now() + 1).toString(),
-            role: 'assistant',
-            content: '',
-            reasoning: result.reasoning,
-            toolCalls: result.toolCalls,
-            timestamp: new Date(),
-          };
-          setMessages(prev => [...prev, clarifyMessage]);
-          
-          setPendingClarify({
-            questions: clarifyToolCall.questions,
-            context: result.pendingContext
-          });
-          return;
+      await api.sendMessageStream([...messages, userMessage], modelConfig, (event) => {
+        switch (event.type) {
+          case 'reasoning_delta':
+            setMessages(prev => prev.map(msg => {
+              if (msg.id !== assistantMsgId) return msg;
+              const currentReasoning = msg.reasoning || [''];
+              const lastIndex = currentReasoning.length - 1;
+              const updated = [...currentReasoning];
+              updated[lastIndex] = (updated[lastIndex] || '') + (event.delta || '');
+              return { ...msg, reasoning: updated };
+            }));
+            break;
+
+          case 'content_delta':
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMsgId 
+                ? { ...msg, content: (msg.content || '') + (event.delta || '') }
+                : msg
+            ));
+            break;
+
+          case 'tool_call':
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMsgId
+                ? { 
+                    ...msg, 
+                    steps: [...(msg.steps || []), { 
+                      type: 'tool_call' as const, 
+                      content: event.name === 'web_search' 
+                        ? `🔍 正在搜索: ${event.query}`
+                        : `🌐 正在获取: ${event.query}`,
+                      timestamp: Date.now()
+                    }]
+                  }
+                : msg
+            ));
+            break;
+
+          case 'tool_result':
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMsgId
+                ? { 
+                    ...msg, 
+                    steps: [...(msg.steps || []), { 
+                      type: 'tool_result' as const, 
+                      content: event.name === 'web_search'
+                        ? `✅ 搜索完成，获取到 ${event.resultCount} 条结果`
+                        : `✅ 页面获取完成，内容长度: ${event.resultCount}`,
+                      timestamp: Date.now()
+                    }],
+                    reasoning: [...(msg.reasoning || []), '']
+                  }
+                : msg
+            ));
+            break;
+            
+          case 'done':
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMsgId
+                ? { ...msg, toolCalls: event.toolCalls }
+                : msg
+            ));
+            break;
+            
+          case 'clarify':
+            setPendingClarify({
+              questions: event.questions!,
+              context: event.pendingContext!
+            });
+            break;
+            
+          case 'error':
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMsgId
+                ? { ...msg, content: `Error: ${event.message}` }
+                : msg
+            ));
+            break;
         }
-      }
-
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: result.response,
-        reasoning: result.reasoning,
-        toolCalls: result.toolCalls,
-        steps: result.steps,
-        timestamp: new Date(),
-      };
-
-      setMessages(prev => [...prev, assistantMessage]);
+      });
     } catch (error) {
       console.error('Error sending message:', error);
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `Error: ${error instanceof Error ? error.message : 'Failed to send message'}`,
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => prev.map(msg => 
+        msg.id === assistantMsgId
+          ? { ...msg, content: `Error: ${error instanceof Error ? error.message : 'Failed to send message'}` }
+          : msg
+      ));
     } finally {
       setIsLoading(false);
     }
@@ -216,50 +270,111 @@ function App() {
       content: answersText,
       timestamp: new Date(),
     };
-    setMessages(prev => [...prev, userAnswerMessage]);
 
+    // Create empty assistant message for streaming
+    const assistantMsgId = (Date.now() + 1).toString();
+    const assistantMessage: Message = {
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '',
+      reasoning: [],
+      toolCalls: [],
+      steps: [],
+      timestamp: new Date(),
+    };
+
+    setMessages(prev => [...prev, userAnswerMessage, assistantMessage]);
     setIsLoading(true);
     setPendingClarify(null);
 
     try {
-      const result = await api.continueWithAnswers(pendingClarify.context, answers);
+      await api.continueWithAnswersStream(pendingClarify.context, answers, (event) => {
+        switch (event.type) {
+          case 'reasoning_delta':
+            setMessages(prev => prev.map(msg => {
+              if (msg.id !== assistantMsgId) return msg;
+              const currentReasoning = msg.reasoning || [''];
+              const lastIndex = currentReasoning.length - 1;
+              const updated = [...currentReasoning];
+              updated[lastIndex] = (updated[lastIndex] || '') + (event.delta || '');
+              return { ...msg, reasoning: updated };
+            }));
+            break;
 
-      // Check if GPT needs more clarification
-      if (result.status === 'pending_clarification' && result.pendingContext) {
-        const clarifyToolCall = result.toolCalls.find(tc => tc.name === 'clarify');
-        if (clarifyToolCall?.questions) {
-          setPendingClarify({
-            questions: clarifyToolCall.questions,
-            context: result.pendingContext
-          });
-          return;
+          case 'content_delta':
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMsgId 
+                ? { ...msg, content: (msg.content || '') + (event.delta || '') }
+                : msg
+            ));
+            break;
+
+          case 'tool_call':
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMsgId
+                ? { 
+                    ...msg, 
+                    steps: [...(msg.steps || []), { 
+                      type: 'tool_call' as const, 
+                      content: event.name === 'web_search' 
+                        ? `🔍 正在搜索: ${event.query}`
+                        : `🌐 正在获取: ${event.query}`,
+                      timestamp: Date.now()
+                    }]
+                  }
+                : msg
+            ));
+            break;
+
+          case 'tool_result':
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMsgId
+                ? { 
+                    ...msg, 
+                    steps: [...(msg.steps || []), { 
+                      type: 'tool_result' as const, 
+                      content: event.name === 'web_search'
+                        ? `✅ 搜索完成，获取到 ${event.resultCount} 条结果`
+                        : `✅ 页面获取完成，内容长度: ${event.resultCount}`,
+                      timestamp: Date.now()
+                    }],
+                    reasoning: [...(msg.reasoning || []), '']
+                  }
+                : msg
+            ));
+            break;
+            
+          case 'done':
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMsgId
+                ? { ...msg, toolCalls: event.toolCalls }
+                : msg
+            ));
+            break;
+            
+          case 'clarify':
+            setPendingClarify({
+              questions: event.questions!,
+              context: event.pendingContext!
+            });
+            break;
+            
+          case 'error':
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMsgId
+                ? { ...msg, content: `Error: ${event.message}` }
+                : msg
+            ));
+            break;
         }
-      }
-
-      // Add the assistant response as a new message
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: result.response,
-        reasoning: result.reasoning,
-        toolCalls: result.toolCalls,
-        steps: result.steps,
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, assistantMessage]);
+      });
     } catch (error) {
       console.error('Error continuing after clarification:', error);
-      setMessages(prev => {
-        const updated = [...prev];
-        const lastIndex = updated.length - 1;
-        if (lastIndex >= 0 && updated[lastIndex].role === 'assistant') {
-          updated[lastIndex] = {
-            ...updated[lastIndex],
-            content: `Error: ${error instanceof Error ? error.message : 'Failed to continue'}`
-          };
-        }
-        return updated;
-      });
+      setMessages(prev => prev.map(msg => 
+        msg.id === assistantMsgId
+          ? { ...msg, content: `Error: ${error instanceof Error ? error.message : 'Failed to continue'}` }
+          : msg
+      ));
     } finally {
       setIsLoading(false);
     }
@@ -330,6 +445,7 @@ function App() {
                       key={message.id} 
                       message={message} 
                       isLatest={index === messages.length - 1}
+                      isLoading={isLoading}
                       username={username}
                     />
                   ))}
@@ -340,17 +456,6 @@ function App() {
                         onSubmit={handleClarifySubmit}
                         isLoading={isLoading}
                       />
-                    </div>
-                  )}
-                  {isLoading && (
-                    <div className="flex gap-3 p-4 bg-white">
-                      <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-green-500">
-                        <Loader2 className="w-5 h-5 text-white animate-spin" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-medium text-sm mb-1">Assistant</div>
-                        <div className="text-gray-400">Thinking...</div>
-                      </div>
                     </div>
                   )}
                   <div ref={messagesEndRef} />

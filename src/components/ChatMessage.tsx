@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Message } from '../types';
-import { Brain, Globe, HelpCircle, Copy, Loader2, CheckCircle, ChevronRight, ChevronDown, Link } from 'lucide-react';
+import { Brain, Globe, HelpCircle, Copy, Loader2, CheckCircle, ChevronRight, ChevronDown, Link, Wrench } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -11,22 +11,43 @@ import botAvatar from '../assets/avatar_bot.png';
 interface ChatMessageProps {
   message: Message;
   isLatest?: boolean;
+  isLoading?: boolean;
   username?: string;
 }
 
-export const ChatMessage: React.FC<ChatMessageProps> = ({ message, username = 'You' }) => {
+export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isLatest, isLoading, username = 'You' }) => {
   const isUser = message.role === 'user';
-  const hasReasoning = !isUser && message.reasoning && message.reasoning.length > 0;
-  const hasSteps = !isUser && message.steps && message.steps.length > 0;
+  const hasReasoning = !isUser && message.reasoning && message.reasoning.length > 0 && message.reasoning.some(r => r.trim());
+  const hasContent = !isUser && message.content && message.content.trim();
+  
+  const isStreaming = isLatest && !isUser && isLoading;
+  const isReasoningPhase = isStreaming && !hasContent;
+  const isContentStreaming = isStreaming && hasContent;
+  
+  const [showReasoning, setShowReasoning] = useState(isReasoningPhase);
+  
+  useEffect(() => {
+    if (isLatest && hasContent && showReasoning) {
+      setShowReasoning(false);
+    }
+    if (isLatest && !hasContent && hasReasoning) {
+      setShowReasoning(true);
+    }
+  }, [isLatest, hasContent, hasReasoning]);
 
-  const webSearchCalls = message.toolCalls?.filter(tc => tc.name === 'web_search') || [];
-  const webFetchCalls = message.toolCalls?.filter(tc => tc.name === 'web_fetch') || [];
+  const toolCallsFromDone = message.toolCalls?.filter(tc => tc.name === 'web_search' || tc.name === 'web_fetch') || [];
   const clarifyCalls = message.toolCalls?.filter(tc => tc.name === 'clarify') || [];
+  
+  const toolCallSteps = message.steps?.filter(s => s.type === 'tool_call') || [];
+  const toolResultSteps = message.steps?.filter(s => s.type === 'tool_result') || [];
+  
+  const toolCallCount = toolCallsFromDone.length > 0 ? toolCallsFromDone.length : toolCallSteps.length;
+  const completedCount = toolResultSteps.length;
+  
+  const hasToolActivity = toolCallCount > 0 || (message.steps && message.steps.length > 0);
+  const isToolsComplete = hasToolActivity && hasContent && (toolCallsFromDone.length > 0);
 
-  const [showReasoning, setShowReasoning] = useState(false);
-  const [showSteps, setShowSteps] = useState(false);
-  const [showWebSearch, setShowWebSearch] = useState(false);
-  const [showWebFetch, setShowWebFetch] = useState(false);
+  const [showTools, setShowTools] = useState(false);
 
   return (
     <div className={`flex gap-3 p-4 ${isUser ? 'bg-gray-50' : 'bg-white'}`}>
@@ -36,51 +57,97 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, username = 'Y
         className="flex-shrink-0 w-8 h-8 rounded-full object-cover"
       />
       <div className="flex-1">
-        <div className="font-medium text-sm mb-1">
+        <div className="font-medium text-sm mb-1 flex items-center gap-2">
           {isUser ? username : 'Assistant'}
+          {isStreaming && !isUser && (
+            <span className="flex items-center gap-1 text-xs text-blue-500 font-normal">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              生成中...
+            </span>
+          )}
         </div>
 
-        {webSearchCalls.length > 0 && (
-          <div className="mb-3 bg-blue-50 rounded-lg border border-blue-200">
+        {hasReasoning && (
+          <div className="mb-3 bg-gray-50 rounded-lg border border-gray-200">
             <button
-              onClick={() => setShowWebSearch(!showWebSearch)}
-              className="w-full p-3 flex items-center gap-1.5 text-xs text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
+              onClick={() => setShowReasoning(!showReasoning)}
+              className="w-full p-3 flex items-center gap-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
             >
-              {showWebSearch ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-              <Globe className="w-3.5 h-3.5" />
-              <span className="font-medium">Web Search ({webSearchCalls.length})</span>
+              {showReasoning ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              <Brain className="w-3.5 h-3.5" />
+              <span className="font-medium">思考过程</span>
+              {isReasoningPhase && <Loader2 className="w-3 h-3 animate-spin ml-1" />}
             </button>
-            {showWebSearch && (
-              <div className="px-3 pb-3 text-blue-700 text-sm">
-                {webSearchCalls.map((tc, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <span className="text-blue-500">🔍</span>
-                    <span>Searching: <code className="bg-blue-100 px-1.5 py-0.5 rounded text-xs">{tc.query}</code></span>
-                  </div>
+            {showReasoning && (
+              <div className="px-3 pb-3 text-gray-500 text-sm prose prose-sm max-w-none prose-p:my-1 prose-headings:text-gray-600">
+                {message.reasoning!.map((item, index) => (
+                  <ReactMarkdown key={index} remarkPlugins={[remarkGfm]}>
+                    {item}
+                  </ReactMarkdown>
                 ))}
               </div>
             )}
           </div>
         )}
 
-        {webFetchCalls.length > 0 && (
-          <div className="mb-3 bg-green-50 rounded-lg border border-green-200">
+        {hasToolActivity && (
+          <div className="mb-3 bg-blue-50 rounded-lg border border-blue-200">
             <button
-              onClick={() => setShowWebFetch(!showWebFetch)}
-              className="w-full p-3 flex items-center gap-1.5 text-xs text-green-600 hover:bg-green-100 rounded-lg transition-colors"
+              onClick={() => setShowTools(!showTools)}
+              className="w-full p-3 flex items-center gap-1.5 text-xs text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
             >
-              {showWebFetch ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-              <Link className="w-3.5 h-3.5" />
-              <span className="font-medium">Web Fetch ({webFetchCalls.length})</span>
+              {showTools ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              {isToolsComplete ? (
+                <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+              ) : (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              )}
+              <Wrench className="w-3.5 h-3.5" />
+              <span className="font-medium">
+                工具调用 {toolCallCount > 0 && `(${completedCount}/${toolCallCount})`}
+              </span>
+              {isToolsComplete && (
+                <span className="ml-auto text-green-600 flex items-center gap-1">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  完成
+                </span>
+              )}
             </button>
-            {showWebFetch && (
-              <div className="px-3 pb-3 text-green-700 text-sm">
-                {webFetchCalls.map((tc, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <span className="text-green-500">🌐</span>
-                    <span>Fetching: <code className="bg-green-100 px-1.5 py-0.5 rounded text-xs break-all">{tc.query}</code></span>
+            {showTools && (
+              <div className="px-3 pb-3 space-y-2">
+                {toolCallsFromDone.map((tc, index) => (
+                  <div key={`tool-${index}`} className="flex items-center gap-2 text-sm">
+                    {tc.name === 'web_search' ? (
+                      <Globe className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                    ) : (
+                      <Link className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    )}
+                    <span className={tc.name === 'web_search' ? 'text-blue-700' : 'text-green-700'}>
+                      {tc.name === 'web_search' ? '搜索' : '获取'}: 
+                      <code className={`${tc.name === 'web_search' ? 'bg-blue-100' : 'bg-green-100'} px-1.5 py-0.5 rounded text-xs ml-1 break-all`}>
+                        {tc.query}
+                      </code>
+                    </span>
+                    {isToolsComplete && <CheckCircle className="w-3.5 h-3.5 text-green-500 ml-auto" />}
                   </div>
                 ))}
+                {message.steps && message.steps.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-blue-200 space-y-1">
+                    <div className="text-xs text-blue-500 font-medium mb-1">执行日志</div>
+                    {message.steps.map((step, index) => (
+                      <div key={index} className="flex items-start gap-2 text-xs text-gray-600">
+                        {step.type === 'tool_result' ? (
+                          <CheckCircle className="w-3.5 h-3.5 text-green-500 mt-0.5 flex-shrink-0" />
+                        ) : (
+                          <div className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 flex items-center justify-center">
+                            <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                          </div>
+                        )}
+                        <span>{step.content}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -97,70 +164,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, username = 'Y
             </div>
           </div>
         )}
-
-        {hasSteps && (
-          <div className="mb-3 bg-purple-50 rounded-lg border border-purple-200">
-            <button
-              onClick={() => setShowSteps(!showSteps)}
-              className="w-full p-3 flex items-center gap-1.5 text-xs text-purple-600 hover:bg-purple-100 rounded-lg transition-colors"
-            >
-              {showSteps ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-              <Loader2 className="w-3.5 h-3.5" />
-              <span className="font-medium">执行过程 ({message.steps!.length} 步)</span>
-            </button>
-            {showSteps && (
-              <div className="px-3 pb-3 space-y-2">
-                {message.steps!.map((step, index) => (
-                  <div key={index} className="flex items-start gap-2 text-sm">
-                    {step.type === 'tool_call' && (
-                      <Globe className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
-                    )}
-                    {step.type === 'tool_result' && (
-                      <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                    )}
-                    {step.type === 'reasoning' && (
-                      <Brain className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
-                    )}
-                    <span className={`${
-                      step.type === 'tool_call' ? 'text-blue-700' :
-                      step.type === 'tool_result' ? 'text-green-700' :
-                      'text-gray-600'
-                    }`}>
-                      {step.content}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        
-        {hasReasoning && (
-          <div className="mb-3 bg-gray-50 rounded-lg border border-gray-200">
-            <button
-              onClick={() => setShowReasoning(!showReasoning)}
-              className="w-full p-3 flex items-center gap-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              {showReasoning ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-              <Brain className="w-3.5 h-3.5" />
-              <span className="font-medium">Reasoning</span>
-            </button>
-            {showReasoning && (
-              <div className="px-3 pb-3 text-gray-500 text-sm prose prose-sm max-w-none prose-p:my-1 prose-headings:text-gray-600">
-                {message.reasoning!.map((item, index) => (
-                  <ReactMarkdown key={index} remarkPlugins={[remarkGfm]}>
-                    {item}
-                  </ReactMarkdown>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
         
         {isUser ? (
-          <div className="text-gray-800 prose prose-sm max-w-none">
+          <div className="text-gray-800">
             {message.images && message.images.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-3 not-prose">
+              <div className="flex flex-wrap gap-2 mb-3">
                 {message.images.map(img => (
                   <img 
                     key={img.id}
@@ -171,9 +179,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, username = 'Y
                 ))}
               </div>
             )}
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {message.content}
-            </ReactMarkdown>
+            <div className="whitespace-pre-wrap break-words">{message.content}</div>
           </div>
         ) : (
           <div className="text-gray-800 prose prose-sm max-w-none">
@@ -225,6 +231,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message, username = 'Y
             >
               {message.content}
             </ReactMarkdown>
+            {isContentStreaming && (
+              <span className="inline-block w-2 h-4 bg-blue-500 animate-pulse ml-0.5" />
+            )}
           </div>
         )}
       </div>

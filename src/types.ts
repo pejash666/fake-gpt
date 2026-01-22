@@ -74,3 +74,22 @@ export const REASONING_LEVELS = [
   { value: 'medium', label: 'Medium', description: 'Balanced thinking' },
   { value: 'high', label: 'High', description: 'Deep reasoning' }
 ] as const;
+
+export type StreamEventType = 
+  | 'start' | 'reasoning' | 'reasoning_delta' | 'tool_call' | 'tool_call_start'
+  | 'tool_result' | 'content' | 'content_delta' | 'done' | 'error' | 'clarify';
+
+export interface StreamEvent {
+  type: StreamEventType;
+  content?: string;
+  text?: string;
+  delta?: string;
+  name?: string;
+  query?: string;
+  resultCount?: number;
+  message?: string;
+  reasoning?: string[];
+  toolCalls?: ToolCall[];
+  questions?: ClarifyQuestion[];
+  pendingContext?: PendingContext;
+}

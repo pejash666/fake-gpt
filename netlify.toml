@@ -5,6 +5,23 @@
 [build.environment]
   NODE_VERSION = "18"
 
+[dev]
+  framework = "#auto"
+  autoLaunch = false
+  targetPort = 3000
+
+[functions]
+  directory = "netlify/functions"
+
+[[edge_functions]]
+  path = "/api/chat-stream"
+  function = "chat-stream"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

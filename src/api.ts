@@ -1,4 +1,4 @@
-import { Message, ModelConfig, ToolCall, ClarifyAnswer, PendingContext, AgentStep } from './types';
+import { Message, ModelConfig, ToolCall, ClarifyAnswer, PendingContext, AgentStep, StreamEvent } from './types';
 
 export interface ChatResponse {
   status: 'complete' | 'pending_clarification';
@@ -95,6 +95,100 @@ export class NetlifyAPI {
       steps: data.steps,
       pendingContext: data.pendingContext
     };
+  }
+
+  async continueWithAnswersStream(
+    pendingContext: PendingContext, 
+    answers: ClarifyAnswer[],
+    onEvent: (event: StreamEvent) => void
+  ): Promise<void> {
+    const endpoint = '/api/chat-stream';
+
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pendingContext, answers })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Request failed: ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('Response body is not readable');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      buffer += decoder.decode(value, { stream: true });
+      
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop() || '';
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            onEvent(data);
+          } catch (e) {
+            console.error('Failed to parse SSE event:', line, e);
+          }
+        }
+      }
+    }
+  }
+
+  async sendMessageStream(
+    messages: Message[], 
+    config: ModelConfig,
+    onEvent: (event: StreamEvent) => void
+  ): Promise<void> {
+    const endpoint = '/api/chat-stream';
+
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, modelConfig: config })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Request failed: ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('Response body is not readable');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      buffer += decoder.decode(value, { stream: true });
+      
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop() || '';
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            onEvent(data);
+          } catch (e) {
+            console.error('Failed to parse SSE event:', line, e);
+          }
+        }
+      }
+    }
   }
 
   async generateTitle(message: string): Promise<string> {
