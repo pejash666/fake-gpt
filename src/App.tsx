@@ -35,7 +35,7 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [api] = useState(() => new NetlifyAPI());
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
-    model: 'gpt-5.1',
+    model: 'gpt-5.2',
     reasoning: { effort: 'medium' }
   });
   const [username, setUsername] = useState(() => {

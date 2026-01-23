@@ -70,8 +70,8 @@ DO NOT assume or guess when you can ask. It's better to ask 2-3 targeted questio
 const ALL_TOOLS = [WEB_SEARCH_TOOL, WEB_FETCH_TOOL, CLARIFY_TOOL];
 
 const MODEL_DEPLOYMENT_MAP: Record<string, string> = {
-  'gpt-5.1': 'gpt-5.1-PTU',
-  'gpt-5.2': 'gpt-5.2'
+  'gpt-5.1': 'gpt-5.1',
+  'gpt-5.2': 'gpt-5.2-PTU'
 };
 
 const SYSTEM_PROMPT = `你是一个有帮助的AI助手。你必须始终使用简体中文进行回复，包括你的思考过程（reasoning/thinking）和最终回复。

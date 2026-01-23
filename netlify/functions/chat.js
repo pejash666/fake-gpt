@@ -80,8 +80,8 @@ const CLARIFY_TOOL = {
 const ALL_TOOLS = [WEB_SEARCH_TOOL, WEB_FETCH_TOOL, CLARIFY_TOOL];
 
 const MODEL_DEPLOYMENT_MAP = {
-  'gpt-5.1': 'gpt-5.1-PTU',
-  'gpt-5.2': 'gpt-5.2'
+  'gpt-5.1': 'gpt-5.1',
+  'gpt-5.2': 'gpt-5.2-PTU'
 };
 
 async function performWebSearch(query) {
