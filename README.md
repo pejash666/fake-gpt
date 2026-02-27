@@ -1,72 +1,137 @@
-# Azure ChatGPT with Netlify Functions
+# Fake GPT
 
-A secure ChatGPT-like interface using Azure OpenAI API with Netlify Functions to protect API keys.
-
-## Features
-
-- 🚀 **Secure API Integration**: Uses Netlify Functions to hide Azure API keys
-- 💬 **Chat Interface**: Modern, responsive chat UI similar to ChatGPT
-- 🔒 **No Exposed Credentials**: API keys stay server-side
-- 📱 **Mobile Responsive**: Works on all devices
-- ⚡ **Fast Performance**: Built with React and Vite
-
-## Setup
-
-### 1. Install Dependencies
-```bash
-npm install
-```
-
-### 2. Configure Environment Variables
-
-Create a `.env` file with your Azure OpenAI credentials:
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your actual values:
-```
-AZURE_API_KEY=your_actual_api_key
-AZURE_ENDPOINT=https://your-resource.openai.azure.com
-AZURE_DEPLOYMENT_NAME=your_deployment_name
-```
-
-### 3. Local Development
-```bash
-npm run dev
-```
-
-### 4. Deploy to Netlify
-
-1. Push your code to GitHub
-2. Connect your repository to Netlify
-3. Add environment variables in Netlify dashboard:
-   - `AZURE_API_KEY`
-   - `AZURE_ENDPOINT`
-   - `AZURE_DEPLOYMENT_NAME`
-4. Deploy!
+A ChatGPT-like interface powered by Azure OpenAI API, with web search and content fetching capabilities.
 
 ## Architecture
 
 ```
-Frontend (React) → Netlify Function → Azure OpenAI API
+Browser (React SPA) → Express Server (Node.js) → Azure OpenAI API
+                                                → Parallel AI (web search)
+                                                → Jina AI (web fetch)
 ```
 
-The Netlify Function acts as a secure proxy, ensuring your API keys never reach the browser.
+Single-container deployment: the Express server serves both the frontend static files and the backend API.
 
 ## Environment Variables
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `AZURE_API_KEY` | Your Azure OpenAI API key | ✅ |
-| `AZURE_ENDPOINT` | Your Azure OpenAI endpoint URL | ✅ |
-| `AZURE_DEPLOYMENT_NAME` | Your model deployment name | ✅ |
+| `AZURE_API_KEY` | Azure OpenAI API key | Yes |
+| `AZURE_ENDPOINT` | Azure OpenAI endpoint URL (e.g. `https://xxx.openai.azure.com`) | Yes |
+| `PARALLEL_API_KEY` | Parallel AI API key for web search | No |
+| `JINA_API_KEY` | Jina AI API key for web content fetching | No |
 
-## Free Tier Limits
+## Docker Deployment
 
-Netlify Functions free tier includes:
-- 100,000 function invocations/month
-- 3,600 hours of build time/month
-- Unlimited sites
+### Prerequisites
 
-Perfect for personal projects and prototypes!
+- Docker 20+ and Docker Compose v2+
+
+### Build
+
+```bash
+docker compose build
+```
+
+This runs a multi-stage build:
+1. **Build stage**: installs all dependencies, compiles TypeScript, and builds the frontend with Vite into `dist/`
+2. **Production stage**: installs only runtime dependencies (`express`, `cors`, `dotenv`, `node-fetch`), copies `server.js` and `dist/`, resulting in a ~80MB image
+
+### Configure
+
+Create a `.env` file in the project root:
+
+```bash
+cp .env.example .env
+# Edit .env with actual values
+```
+
+### Run
+
+```bash
+docker compose up -d
+```
+
+The service listens on port **3002** (configurable via `PORT` env var). Access it at `http://<host>:3002`.
+
+### Health Check
+
+```
+GET /healthz → {"status":"ok"}
+```
+
+### Stop
+
+```bash
+docker compose down
+```
+
+### Custom Port
+
+To change the exposed port, edit `docker-compose.yml`:
+
+```yaml
+ports:
+  - "8080:3002"    # host:container
+```
+
+Or to change the container's internal port as well, set the `PORT` environment variable:
+
+```yaml
+services:
+  fake-gpt:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - PORT=8080
+    restart: unless-stopped
+```
+
+### Reverse Proxy (Optional)
+
+If placing behind Nginx or an ALB, proxy to `http://localhost:3002`. The `/api/chat-stream` endpoint uses Server-Sent Events (SSE), so ensure the proxy supports streaming and sets appropriate timeouts (recommend 300s+).
+
+Example Nginx config:
+
+```nginx
+server {
+    listen 80;
+    server_name chat.example.com;
+
+    location / {
+        proxy_pass http://localhost:3002;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_read_timeout 300s;
+        proxy_buffering off;
+    }
+}
+```
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/healthz` | Health check |
+| POST | `/api/chat` | Send chat message (non-streaming) |
+| POST | `/api/chat-stream` | Send chat message (SSE streaming) |
+| POST | `/api/chat/continue` | Continue after clarification |
+| POST | `/api/generate-title` | Generate conversation title |
+
+## Local Development (without Docker)
+
+```bash
+npm install
+cp .env.example .env
+# Edit .env with actual values
+npm run dev:local    # Starts Express backend (port 3002) + Vite dev server (port 3000)
+```
+
+## Netlify Deployment
+
+The project also supports deployment to Netlify. See `netlify.toml` for configuration. Add environment variables in the Netlify dashboard and deploy via Git push.

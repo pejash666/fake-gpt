@@ -2,12 +2,25 @@ import express from 'express';
 import cors from 'cors';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 dotenv.config();
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+// Rewrite Netlify function paths to Express API paths (for Docker/self-hosted deployment)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/.netlify/functions/')) {
+    req.url = req.url.replace('/.netlify/functions/', '/api/');
+    req.url = req.url.replace('/api/chat-continue', '/api/chat/continue');
+  }
+  next();
+});
 
 // Tool definitions
 const WEB_SEARCH_TOOL = {
@@ -941,7 +954,16 @@ app.post('/api/generate-title', async (req, res) => {
   }
 });
 
-const PORT = 3002;
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+// Health check for container orchestration
+app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok' }));
+
+// Serve frontend static files (Vite build output)
+app.use(express.static(path.join(__dirname, 'dist')));
+app.get('/{*splat}', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
+const PORT = process.env.PORT || 3002;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
 });
